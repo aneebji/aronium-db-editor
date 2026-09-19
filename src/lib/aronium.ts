@@ -1,5 +1,5 @@
 import type { Database } from "sql.js";
-import type { Product, TxnRow } from "../types";
+import type { CatalogProduct, LedgerSale, Product, TxnRow } from "../types";
 
 const SALES_TYPE_ID = 2;
 const SALES_TYPE_CODE = 200;
@@ -43,6 +43,78 @@ export function loadProducts(db: Database): Product[] {
   return products;
 }
 
+export function loadCatalog(db: Database): CatalogProduct[] {
+  const stmt = db.prepare("SELECT Id, Name, Code, Price, IsEnabled FROM Product ORDER BY Name");
+  const products: CatalogProduct[] = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    products.push({
+      id: Number(row.Id),
+      name: String(row.Name ?? ""),
+      code: String(row.Code ?? ""),
+      price: Number(row.Price),
+      enabled: Boolean(Number(row.IsEnabled ?? 0)),
+    });
+  }
+  stmt.free();
+  return products;
+}
+
+export function formatDateTime(value: unknown): string {
+  return String(value ?? "").replace("T", " ").slice(0, 19);
+}
+
+function productLabel(name: string, itemCount: number): string {
+  const extra = Math.max(0, itemCount - 1);
+  const label = name.trim();
+  if (label && extra) return `${label} + ${extra} more`;
+  if (label) return label;
+  if (itemCount > 1) return `${itemCount} items`;
+  return "";
+}
+
+export function loadSales(db: Database): Omit<LedgerSale, "source">[] {
+  const stmt = db.prepare(
+    `SELECT
+        d.Id AS DocumentId,
+        d.Number AS Number,
+        d.DateCreated AS DateCreated,
+        d.Total AS Total,
+        d.InternalNote AS InternalNote,
+        di.ProductId AS ProductId,
+        p.Code AS Code,
+        p.Name AS Name,
+        (SELECT COUNT(*) FROM DocumentItem x WHERE x.DocumentId = d.Id) AS ItemCount
+      FROM Document d
+      LEFT JOIN DocumentItem di
+        ON di.DocumentId = d.Id
+        AND di.Id = (SELECT MIN(Id) FROM DocumentItem WHERE DocumentId = d.Id)
+      LEFT JOIN Product p ON p.Id = di.ProductId
+      WHERE d.DocumentTypeId = ?
+      ORDER BY d.DateCreated DESC, d.Id DESC`,
+  );
+  stmt.bind([SALES_TYPE_ID]);
+  const sales: Omit<LedgerSale, "source">[] = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    const itemCount = Number(row.ItemCount ?? 0);
+    const productName = String(row.Name ?? "");
+    sales.push({
+      documentId: Number(row.DocumentId),
+      datetime: formatDateTime(row.DateCreated),
+      amount: Number(row.Total ?? 0),
+      productCode: String(row.Code ?? ""),
+      product: productLabel(productName, itemCount),
+      productId: row.ProductId == null ? null : Number(row.ProductId),
+      extraItems: Math.max(0, itemCount - 1),
+      documentNumber: String(row.Number ?? ""),
+      internalNote: String(row.InternalNote ?? ""),
+    });
+  }
+  stmt.free();
+  return sales;
+}
+
 function taxRate(db: Database): number {
   const rate = scalar<number>(db, "SELECT Rate FROM Tax WHERE IsEnabled = 1 ORDER BY Id LIMIT 1");
   return rate == null ? DEFAULT_TAX_RATE : Number(rate);
@@ -84,7 +156,11 @@ function setCounter(db: Database, name: string, value: number): void {
   db.run("UPDATE Counter SET Value = ? WHERE Name = ?", [value, name]);
 }
 
-export function insertSale(db: Database, row: TxnRow): TxnRow {
+export function ocrBatchNote(batchId: number): string {
+  return `OCR batch ${batchId}`;
+}
+
+export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow {
   if (row.skipped) {
     row.result = "skipped";
     return row;
@@ -126,7 +202,7 @@ export function insertSale(db: Database, row: TxnRow): TxnRow {
         IsClockedOut, DocumentTypeId, WarehouseId, ReferenceDocumentNumber,
         DateCreated, DateUpdated, InternalNote, Note, DueDate, Discount,
         DiscountType, PaidStatus, DiscountApplyRule, ServiceType
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?, NULL, NULL, ?, 0, 0, ?, 0, 1)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, NULL, ?, ?, ?, NULL, ?, 0, 0, ?, 0, 1)`,
       [
         number,
         USER_ID,
@@ -139,6 +215,7 @@ export function insertSale(db: Database, row: TxnRow): TxnRow {
         WAREHOUSE_ID,
         dt,
         dt,
+        batchId != null ? ocrBatchNote(batchId) : null,
         dateOnly,
         PAID_STATUS,
       ],
@@ -196,18 +273,18 @@ export function insertSale(db: Database, row: TxnRow): TxnRow {
   return row;
 }
 
-export function insertRows(db: Database, rows: TxnRow[]): TxnRow[] {
+export function insertRows(db: Database, rows: TxnRow[], batchId?: number): TxnRow[] {
   for (const row of rows) {
     if (row.skipped) {
       row.result = "skipped";
       continue;
     }
     try {
-      insertSale(db, row);
+      insertSale(db, row, batchId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       row.result = "failed";
-      row.error = /locked/i.test(message) ? "Database locked. Close Aronium and retry." : message;
+      row.error = /locked/i.test(message) ? "The database is locked. Close Aronium and try again." : message;
     }
   }
   return rows;

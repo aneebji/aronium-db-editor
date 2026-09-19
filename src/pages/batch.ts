@@ -1,6 +1,6 @@
 import { insertRows, loadProducts } from "../lib/aronium";
 import { backupCurrent, connectedName, getDatabase, persistDatabase } from "../lib/db-file";
-import { saveBatch } from "../lib/history";
+import { peekNextBatchId, saveBatch } from "../lib/history";
 import { matchRows } from "../lib/matcher";
 import { extractMany, getLastOcrText } from "../lib/ocr";
 import { canvasToFile, drawSampleReceipt, SAMPLE_PRODUCTS } from "../lib/sample";
@@ -57,7 +57,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
       <div class="drop" id="drop">
         <div>
           <strong>Drag images here · 1 or multiple</strong>
-          <p class="muted">PNG / JPG screenshots of transaction history</p>
+          <p class="muted">PNG or JPG screenshots of transaction history</p>
           <div class="toolbar" style="justify-content:center">
             <label class="btn">Add images<input id="files" class="hidden" type="file" accept="image/*" multiple></label>
             <button class="btn ghost" id="sample">Try sample</button>
@@ -93,12 +93,13 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
 
   const refreshHint = () => {
     root.querySelector("#db-hint")!.textContent = connectedName()
-      ? `Using database from Settings · ${connectedName()}`
-      : "No database in Settings. Open Settings and select pos.db once. You can still try the sample.";
+      ? `Using the database from Settings · ${connectedName()}`
+      : "No database is attached. Open Settings to select pos.db. You can still try the sample.";
   };
 
   const refreshThumbs = () => {
-    root.querySelector("#count")!.textContent = `${state.files.length} image(s)`;
+    root.querySelector("#count")!.textContent =
+      `${state.files.length} ${state.files.length === 1 ? "image" : "images"}`;
     root.querySelector("#thumbs")!.innerHTML = state.previews
       .slice(0, 8)
       .map((url) => `<img src="${url}" alt="">`)
@@ -185,7 +186,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
       const datetime = overlay.querySelector<HTMLInputElement>("#dt")!.value.trim();
       const amount = Number(overlay.querySelector<HTMLInputElement>("#amt")!.value);
       if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(datetime) || !Number.isFinite(amount)) {
-        alert("Check datetime and amount.");
+        alert("Please check the date and amount.");
         return;
       }
       row.datetime = datetime;
@@ -219,7 +220,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
   });
   root.querySelector("#sample")?.addEventListener("click", () => {
     addFiles([canvasToFile(drawSampleReceipt())]);
-    status.textContent = "Sample receipt added — Extract to read the 10 demo sales.";
+    status.textContent = "Sample receipt added. Extract to read the 10 demonstration sales.";
   });
   const drop = root.querySelector("#drop")!;
   drop.addEventListener("dragover", (event) => event.preventDefault());
@@ -239,7 +240,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
     if (state.step !== 3 || state.saleDone) return;
     matchRows(state.rows, products());
     refreshTable();
-    status.textContent = "Products rematched at random";
+    status.textContent = "Products rematched at random.";
   });
 
   back.addEventListener("click", () => {
@@ -268,11 +269,11 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         state.rows = await extractMany(state.files, loadSettings().year);
         if (!state.rows.length) {
           const extra = getLastOcrText().trim();
-          alert(extra ? `Could not find datetime + amount.\n\nOCR text:\n${extra.slice(0, 400)}` : "Could not find datetime + amount in the image.");
+          alert(extra ? `Could not find a date and amount.\n\nOCR text:\n${extra.slice(0, 400)}` : "Could not find a date and amount in the image.");
           return;
         }
         showStep(2);
-        status.textContent = `Extracted ${state.rows.length} transaction(s)`;
+        status.textContent = `Extracted ${state.rows.length} transactions`;
       } catch (error) {
         alert(error instanceof Error ? error.message : String(error));
       } finally {
@@ -282,12 +283,12 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
     }
     if (state.step === 2) {
       if (!state.rows.some(isValidRow)) {
-        alert("Need at least one valid row.");
+        alert("At least one valid row is required.");
         return;
       }
       matchRows(state.rows, products());
       showStep(3);
-      status.textContent = `Matched ${state.rows.filter((row) => row.productId).length} product(s)${getDatabase() ? "" : " · sample catalog"}`;
+      status.textContent = `Matched ${state.rows.filter((row) => row.productId).length} products${getDatabase() ? "" : " · sample catalog"}`;
       return;
     }
     if (state.step === 3) {
@@ -297,21 +298,22 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
       }
       const db = getDatabase();
       if (!db) {
-        alert("Choose pos.db in Settings before writing sales. Extract and match can use the sample catalog.");
+        alert("Select pos.db in Settings before writing sales. Extract and match can use the sample catalog.");
         return;
       }
-      if (!confirm("Write these sales into pos.db? A backup download starts first. Close Aronium first.")) return;
+      if (!confirm("Write these sales to pos.db? A backup download starts first. Close Aronium before continuing.")) return;
       setBusy(true, "Writing sales…");
       try {
         const backupName = backupCurrent();
-        insertRows(db, state.rows);
+        const batchId = peekNextBatchId();
+        insertRows(db, state.rows, batchId);
         const wrote = await persistDatabase();
-        saveBatch(connectedName() || "pos.db", state.files.length, state.rows);
+        saveBatch(connectedName() || "pos.db", state.files.length, state.rows, batchId);
         state.saleDone = true;
         showStep(4);
         status.textContent = wrote
-          ? `Done. Backup downloaded as ${backupName}`
-          : `Done. Backup and updated pos.db were downloaded (${backupName})`;
+          ? `Complete. Backup downloaded as ${backupName}. Sales tagged as Batch ${batchId}.`
+          : `Complete. Backup and updated pos.db were downloaded (${backupName}). Sales tagged as Batch ${batchId}.`;
       } catch (error) {
         alert(error instanceof Error ? error.message : String(error));
       } finally {

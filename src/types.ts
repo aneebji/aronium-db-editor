@@ -7,6 +7,23 @@ export interface Product {
   code: string;
 }
 
+export interface CatalogProduct extends Product {
+  enabled: boolean;
+}
+
+export interface LedgerSale {
+  documentId: number;
+  datetime: string;
+  amount: number;
+  productCode: string;
+  product: string;
+  productId: number | null;
+  extraItems: number;
+  documentNumber: string;
+  internalNote: string;
+  source: string;
+}
+
 export interface TxnRow {
   rowId: string;
   datetime: string;
@@ -93,15 +110,18 @@ export function isValidRow(row: TxnRow): boolean {
 }
 
 export function displayStatus(row: TxnRow): string {
-  if (row.result === "already added") return "already added";
+  if (row.result === "already added") return "Already added";
   if (row.result === "skipped" && row.error) {
     if (row.error.toLowerCase().includes("already") || row.error.includes("Duplicate")) {
-      return "already added";
+      return "Already added";
     }
-    return `skipped · ${row.error}`;
+    return `Skipped · ${row.error}`;
   }
-  if (row.result) return row.result;
-  if (row.skipped) return "skipped";
-  if (row.status === "error") return "failed";
-  return row.status || "ok";
+  if (row.result === "inserted") return "Inserted";
+  if (row.result === "failed") return "Failed";
+  if (row.result === "skipped") return "Skipped";
+  if (row.skipped) return "Skipped";
+  if (row.status === "error") return "Failed";
+  if (row.status === "ok") return "Ready";
+  return row.result || row.status || "Ready";
 }

@@ -2,7 +2,7 @@
 
 ### Screenshots in. Matched sales out. On your device.
 
-A focused workspace for reading card-terminal transaction history and writing matching sales into an Aronium `pos.db`. OCR, product match, and SQLite writes stay in the browser. Nothing is uploaded.
+A focused workspace for reading card-terminal transaction history and writing matching sales into an Aronium `pos.db`. OCR, product matching, and SQLite writes stay in the browser. Nothing is uploaded.
 
 [![Open workspace](https://img.shields.io/badge/Open_workspace-Live_app-6ea8ff?style=flat-square)](https://aneebji.github.io/aronium-db-editor/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-222222?style=flat-square)](./LICENSE)
@@ -20,8 +20,8 @@ A focused workspace for reading card-terminal transaction history and writing ma
 | **Extract** | Reads DateTime and amount from terminal history screenshots with Tesseract.js plus a dedicated date/amount parser. |
 | **Match** | Picks one enabled product: exact price first, otherwise a nearby random price. Sale total stays the card amount. |
 | **Enter sale** | Writes Aronium-compatible rows (`Document`, `DocumentItem`, `DocumentItemTax`, `Payment`, `Stock`, `Counter`). Schema is not changed. |
-| **Duplicates** | Exact same second is **already added**. A 1 second difference is a new sale. |
-| **Ledger** | Dashboard, Sales, and Products pages keep local history in this browser only. |
+| **Duplicates** | The exact same second is marked **Already added**. A one-second difference is a new sale. |
+| **Ledger** | After you attach `pos.db`, Dashboard, Sales, and Products load the live catalog and existing sales. OCR inserts show a batch number in the Source column; other tickets are marked Original. |
 | **Sample** | Try a generated receipt and a synthetic catalog before connecting a real database. |
 
 ## From screenshot to sale

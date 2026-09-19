@@ -284,6 +284,10 @@ tr.selected td {
   color: var(--fail);
 }
 
+.source-original {
+  color: var(--dim);
+}
+
 .steps {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

@@ -11,7 +11,7 @@ export function mountApp(root: HTMLElement): void {
     <div class="orb orb-b"></div>
     <aside class="nav">
       <p class="brand">POS Sale Sync</p>
-      <p class="tag">OCR · match · ledger</p>
+      <p class="tag">OCR, match, and ledger on this device</p>
       <button data-page="dash" class="active">Dashboard</button>
       <button data-page="batch">New Batch</button>
       <button data-page="sales">Sales</button>
@@ -32,9 +32,7 @@ export function mountApp(root: HTMLElement): void {
     else if (id === "batch") renderBatch(page, () => show("sales"));
     else if (id === "sales") renderSales(page);
     else if (id === "products") renderProducts(page);
-    else renderSettings(page, () => {
-      if (current === "settings") renderSettings(page, () => undefined);
-    });
+    else renderSettings(page, () => show("dash"));
   };
 
   root.querySelectorAll<HTMLButtonElement>(".nav button").forEach((button) => {

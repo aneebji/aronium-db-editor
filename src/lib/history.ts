@@ -27,14 +27,33 @@ function save(store: Store): void {
   localStorage.setItem(KEY, JSON.stringify(store));
 }
 
-export function saveBatch(dbPath: string, imageCount: number, rows: TxnRow[]): number {
+export function peekNextBatchId(): number {
+  return load().nextBatchId;
+}
+
+export function batchIdForDocument(documentNumber: string): number | undefined {
+  if (!documentNumber) return undefined;
+  const sale = load().sales.find(
+    (row) =>
+      row.documentNumber === documentNumber &&
+      (row.result === "inserted" || row.result === "already added"),
+  );
+  return sale?.batchId;
+}
+
+export function listBatches(): BatchRecord[] {
+  return load().batches;
+}
+
+export function saveBatch(dbPath: string, imageCount: number, rows: TxnRow[], batchId?: number): number {
   const store = load();
   const inserted = rows.filter((row) => row.result === "inserted").length;
   const skipped = rows.filter((row) => row.result === "skipped" || row.result === "already added" || row.skipped).length;
   const failed = rows.filter((row) => row.result === "failed").length;
   const amount = rows.filter((row) => row.result === "inserted").reduce((sum, row) => sum + row.amount, 0);
+  const id = batchId ?? store.nextBatchId;
   const batch: BatchRecord = {
-    id: store.nextBatchId,
+    id,
     createdAt: new Date().toISOString().slice(0, 19).replace("T", " "),
     dbPath,
     imageCount,
@@ -44,7 +63,7 @@ export function saveBatch(dbPath: string, imageCount: number, rows: TxnRow[]): n
     failed,
     amount,
   };
-  store.nextBatchId += 1;
+  store.nextBatchId = Math.max(store.nextBatchId, id + 1);
   store.batches.unshift(batch);
   for (const row of rows) {
     store.sales.unshift({
