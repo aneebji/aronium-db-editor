@@ -1,0 +1,22 @@
+{
+  "name": "pos-sale-sync",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "On-device OCR for card-terminal history screenshots and Aronium pos.db sale entry.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:pages": "PAGES=1 vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "sql.js": "^1.13.0",
+    "tesseract.js": "^6.0.1"
+  },
+  "devDependencies": {
+    "@types/sql.js": "^1.4.9",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  }
+}

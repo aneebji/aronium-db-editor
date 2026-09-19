@@ -1,0 +1,11 @@
+.venv/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+*.db
+*.db.bak*
+testdata/
+release/
+.DS_Store
+*.log

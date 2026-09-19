@@ -1,0 +1,107 @@
+export type PageId = "dash" | "batch" | "sales" | "products" | "settings";
+
+export interface Product {
+  id: number;
+  name: string;
+  price: number;
+  code: string;
+}
+
+export interface TxnRow {
+  rowId: string;
+  datetime: string;
+  amount: number;
+  txnId: string;
+  imageName: string;
+  status: string;
+  skipped: boolean;
+  productId: number | null;
+  productCode: string;
+  productName: string;
+  catalogPrice: number | null;
+  matchType: string;
+  saleNumber: string;
+  saleTotal: number | null;
+  result: string;
+  error: string;
+}
+
+export interface OcrItem {
+  x: number;
+  y: number;
+  text: string;
+}
+
+export interface BatchRecord {
+  id: number;
+  createdAt: string;
+  dbPath: string;
+  imageCount: number;
+  rows: number;
+  inserted: number;
+  skipped: number;
+  failed: number;
+  amount: number;
+}
+
+export interface SaleRecord {
+  id: number;
+  batchId: number;
+  datetime: string;
+  amount: number;
+  product: string;
+  productCode: string;
+  productId: number | null;
+  catalogPrice: number | null;
+  matchType: string;
+  documentNumber: string;
+  result: string;
+  txnId: string;
+}
+
+export interface UsedProduct {
+  productCode: string;
+  product: string;
+  timesUsed: number;
+  lastDatetime: string;
+  totalAmount: number;
+}
+
+export function createTxnRow(partial: Partial<TxnRow> & Pick<TxnRow, "datetime" | "amount">): TxnRow {
+  return {
+    rowId: partial.rowId ?? crypto.randomUUID().slice(0, 10),
+    datetime: partial.datetime,
+    amount: partial.amount,
+    txnId: partial.txnId ?? "",
+    imageName: partial.imageName ?? "",
+    status: partial.status ?? "ok",
+    skipped: partial.skipped ?? false,
+    productId: partial.productId ?? null,
+    productCode: partial.productCode ?? "",
+    productName: partial.productName ?? "",
+    catalogPrice: partial.catalogPrice ?? null,
+    matchType: partial.matchType ?? "",
+    saleNumber: partial.saleNumber ?? "",
+    saleTotal: partial.saleTotal ?? null,
+    result: partial.result ?? "",
+    error: partial.error ?? "",
+  };
+}
+
+export function isValidRow(row: TxnRow): boolean {
+  return !row.skipped && row.status === "ok" && row.amount > 0 && Boolean(row.datetime);
+}
+
+export function displayStatus(row: TxnRow): string {
+  if (row.result === "already added") return "already added";
+  if (row.result === "skipped" && row.error) {
+    if (row.error.toLowerCase().includes("already") || row.error.includes("Duplicate")) {
+      return "already added";
+    }
+    return `skipped · ${row.error}`;
+  }
+  if (row.result) return row.result;
+  if (row.skipped) return "skipped";
+  if (row.status === "error") return "failed";
+  return row.status || "ok";
+}
