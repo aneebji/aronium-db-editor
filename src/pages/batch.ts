@@ -1,9 +1,8 @@
 import { insertRows, loadProducts } from "../lib/aronium";
-import { backupCurrent, connectedName, getDatabase, persistDatabase } from "../lib/db-file";
+import { connectedName, getDatabase, persistAndDownloadPair, snapshotBytes } from "../lib/db-file";
 import { peekNextBatchId, saveBatch } from "../lib/history";
 import { matchRows } from "../lib/matcher";
 import { extractMany, getLastOcrText } from "../lib/ocr";
-import { canvasToFile, drawSampleReceipt, SAMPLE_PRODUCTS } from "../lib/sample";
 import { loadSettings } from "../lib/settings";
 import { displayStatus, isValidRow, type Product, type TxnRow } from "../types";
 import { escapeHtml, statusClass } from "./dashboard";
@@ -60,7 +59,6 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
           <p class="muted">PNG or JPG screenshots of transaction history</p>
           <div class="toolbar" style="justify-content:center">
             <label class="btn">Add images<input id="files" class="hidden" type="file" accept="image/*" multiple></label>
-            <button class="btn ghost" id="sample">Try sample</button>
             <button class="btn ghost" id="clear">Clear</button>
           </div>
           <p class="muted" id="count">0 images</p>
@@ -94,7 +92,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
   const refreshHint = () => {
     root.querySelector("#db-hint")!.textContent = connectedName()
       ? `Using the database from Settings · ${connectedName()}`
-      : "No database is attached. Open Settings to select pos.db. You can still try the sample.";
+      : "No database is attached. Open Settings to select pos.db before matching and writing sales.";
   };
 
   const refreshThumbs = () => {
@@ -200,7 +198,8 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
 
   const products = (): Product[] => {
     const db = getDatabase();
-    return db ? loadProducts(db) : SAMPLE_PRODUCTS;
+    if (!db) return [];
+    return loadProducts(db);
   };
 
   const setBusy = (busy: boolean, text = "") => {
@@ -217,10 +216,6 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
     resetBatch();
     refreshThumbs();
     showStep(1);
-  });
-  root.querySelector("#sample")?.addEventListener("click", () => {
-    addFiles([canvasToFile(drawSampleReceipt())]);
-    status.textContent = "Sample receipt added. Extract to read the 10 demonstration sales.";
   });
   const drop = root.querySelector("#drop")!;
   drop.addEventListener("dragover", (event) => event.preventDefault());
@@ -286,9 +281,13 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         alert("At least one valid row is required.");
         return;
       }
+      if (!getDatabase()) {
+        alert("Attach pos.db in Settings before matching products.");
+        return;
+      }
       matchRows(state.rows, products());
       showStep(3);
-      status.textContent = `Matched ${state.rows.filter((row) => row.productId).length} products${getDatabase() ? "" : " · sample catalog"}`;
+      status.textContent = `Matched ${state.rows.filter((row) => row.productId).length} products`;
       return;
     }
     if (state.step === 3) {
@@ -298,22 +297,28 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
       }
       const db = getDatabase();
       if (!db) {
-        alert("Select pos.db in Settings before writing sales. Extract and match can use the sample catalog.");
+        alert("Attach pos.db in Settings before writing sales.");
         return;
       }
-      if (!confirm("Write these sales to pos.db? A backup download starts first. Close Aronium before continuing.")) return;
+      if (
+        !confirm(
+          "Write these sales to pos.db? The original and updated databases will download as a zip. Close Aronium before continuing.",
+        )
+      ) {
+        return;
+      }
       setBusy(true, "Writing sales…");
       try {
-        const backupName = backupCurrent();
+        const original = snapshotBytes();
         const batchId = peekNextBatchId();
         insertRows(db, state.rows, batchId);
-        const wrote = await persistDatabase();
+        const { zipName, wroteInPlace } = await persistAndDownloadPair(original);
         saveBatch(connectedName() || "pos.db", state.files.length, state.rows, batchId);
         state.saleDone = true;
         showStep(4);
-        status.textContent = wrote
-          ? `Complete. Backup downloaded as ${backupName}. Sales tagged as Batch ${batchId}.`
-          : `Complete. Backup and updated pos.db were downloaded (${backupName}). Sales tagged as Batch ${batchId}.`;
+        status.textContent = wroteInPlace
+          ? `Complete. Downloaded ${zipName} (original and updated). Sales tagged as Batch ${batchId}. The attached file was also written in place.`
+          : `Complete. Downloaded ${zipName} (original and updated). Sales tagged as Batch ${batchId}.`;
       } catch (error) {
         alert(error instanceof Error ? error.message : String(error));
       } finally {

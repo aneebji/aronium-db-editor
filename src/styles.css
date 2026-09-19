@@ -247,6 +247,30 @@ select {
   border-radius: 18px;
 }
 
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pager label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pager select {
+  padding: 6px 10px;
+}
+
+.pager .btn {
+  padding: 8px 12px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

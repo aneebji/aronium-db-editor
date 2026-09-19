@@ -1,5 +1,6 @@
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
+import { zipStore } from "./zip";
 
 let sqlPromise: Promise<SqlJsStatic> | null = null;
 let handle: FileSystemFileHandle | null = null;
@@ -82,29 +83,44 @@ function stamp(): string {
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
-export function backupCurrent(): string {
-  const backupName = `${currentName || "pos.db"}.bak-${stamp()}`;
-  downloadBytes(exportBytes(), backupName);
-  return backupName;
+export function snapshotBytes(): Uint8Array {
+  return exportBytes();
 }
 
-export async function persistDatabase(): Promise<boolean> {
-  const next = exportBytes();
-  if (handle?.createWritable) {
-    try {
-      if (handle.requestPermission) {
-        const permission = await handle.requestPermission({ mode: "readwrite" });
-        if (permission !== "granted") throw new Error("write denied");
-      }
-      const writable = await handle.createWritable();
-      await writable.write(new Blob([new Uint8Array(next)]));
-      await writable.close();
-      return true;
-    } catch {
-      downloadBytes(next, currentName || "pos.db");
-      return false;
+async function writeInPlace(bytes: Uint8Array): Promise<boolean> {
+  if (!handle?.createWritable) return false;
+  try {
+    if (handle.requestPermission) {
+      const permission = await handle.requestPermission({ mode: "readwrite" });
+      if (permission !== "granted") return false;
     }
+    const writable = await handle.createWritable();
+    await writable.write(new Blob([new Uint8Array(bytes)]));
+    await writable.close();
+    return true;
+  } catch {
+    return false;
   }
-  downloadBytes(next, currentName || "pos.db");
-  return false;
+}
+
+export function downloadOriginalAndUpdatedZip(original: Uint8Array, updated: Uint8Array): string {
+  const base = (currentName || "pos.db").replace(/\.db$/i, "") || "pos";
+  const mark = stamp();
+  const zipName = `${base}-original-and-updated-${mark}.zip`;
+  const archive = zipStore([
+    { name: `original-${base}.db`, data: original },
+    { name: `updated-${base}.db`, data: updated },
+  ]);
+  downloadBytes(archive, zipName);
+  return zipName;
+}
+
+export async function persistAndDownloadPair(original: Uint8Array): Promise<{
+  zipName: string;
+  wroteInPlace: boolean;
+}> {
+  const updated = exportBytes();
+  const wroteInPlace = await writeInPlace(updated);
+  const zipName = downloadOriginalAndUpdatedZip(original, updated);
+  return { zipName, wroteInPlace };
 }

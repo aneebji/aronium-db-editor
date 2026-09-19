@@ -22,15 +22,14 @@ A focused workspace for reading card-terminal transaction history and writing ma
 | **Enter sale** | Writes Aronium-compatible rows (`Document`, `DocumentItem`, `DocumentItemTax`, `Payment`, `Stock`, `Counter`). Schema is not changed. |
 | **Duplicates** | The exact same second is marked **Already added**. A one-second difference is a new sale. |
 | **Ledger** | After you attach `pos.db`, Dashboard, Sales, and Products load the live catalog and existing sales. OCR inserts show a batch number in the Source column; other tickets are marked Original. |
-| **Sample** | Try a generated receipt and a synthetic catalog before connecting a real database. |
 
 ## From screenshot to sale
 
 1. **Settings** — Choose your Aronium `pos.db` once. Set the default year for slips that omit it.
-2. **New Batch** — Drop one or more PNG/JPG screenshots, or use **Try sample**.
+2. **New Batch** — Drop one or more PNG/JPG screenshots.
 3. **Extract** — Review DateTime and Price. Edit or skip a row if needed.
 4. **Match** — Fill product code and name. **Rematch random** draws another eligible product.
-5. **Enter Sale** — A backup download starts first. Chrome or Edge can overwrite `pos.db` in place. Other browsers download the updated file.
+5. **Enter Sale** — The original and updated databases download together as a zip. Chrome or Edge can also overwrite `pos.db` in place.
 
 Close Aronium before writing. VAT is treated as 15% inclusive. Payment type is Debit Card. Sale numbers use `{yy}-200-{seq}`.
 
@@ -45,8 +44,8 @@ Bring your own `pos.db` and your own screenshots.
 | | Chrome / Edge | Safari / Firefox |
 | --- | --- | --- |
 | **OCR and match** | Yes | Yes |
-| **Write `pos.db` in place** | File System Access API | Download the updated file |
-| **Backup** | Downloaded `pos.db.bak-YYYYMMDD-HHMMSS` before write | Same |
+| **Write `pos.db` in place** | File System Access API | Use the updated file from the zip |
+| **Backup** | Zip with `original-pos.db` and `updated-pos.db` | Same |
 
 ## Develop locally
 

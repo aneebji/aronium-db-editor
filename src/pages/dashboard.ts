@@ -1,6 +1,7 @@
 import { connectedName, getDatabase } from "../lib/db-file";
 import { listBatches } from "../lib/history";
 import { ledgerSnapshot } from "../lib/ledger";
+import { bindPager, paginate, pagerHtml, type PageSize } from "../lib/pager";
 
 const ATTACH_HINT = "Attach a database in Settings to load the catalog and sales ledger.";
 
@@ -8,6 +9,13 @@ export function renderDashboard(root: HTMLElement, onNewBatch: () => void): void
   const ledger = ledgerSnapshot(getDatabase());
   const batches = listBatches();
   const name = connectedName();
+  const state = {
+    batchPage: 1,
+    batchSize: 10 as PageSize,
+    salesPage: 1,
+    salesSize: 10 as PageSize,
+  };
+
   root.innerHTML = `
     <h1>Dashboard</h1>
     <p class="lead">OCR, match, and ledger on this device.</p>
@@ -26,10 +34,19 @@ export function renderDashboard(root: HTMLElement, onNewBatch: () => void): void
       }</span>
     </div>
     <h2>Recent batches</h2>
-    <div class="table-wrap card" style="padding:0">
-      ${table(
+    <div class="table-wrap card" style="padding:0" id="batch-list"></div>
+    <h2>Recent sales</h2>
+    <div class="table-wrap card" style="padding:0" id="sales-list"></div>
+  `;
+  root.querySelector("#new-batch")?.addEventListener("click", onNewBatch);
+
+  const paint = () => {
+    const batchView = paginate(batches, state.batchPage, state.batchSize);
+    state.batchPage = batchView.page;
+    root.querySelector("#batch-list")!.innerHTML =
+      table(
         ["When", "Images", "Rows", "Inserted", "Skipped", "Failed", "Amount"],
-        batches.slice(0, 20).map((batch) => [
+        batchView.slice.map((batch) => [
           batch.createdAt,
           String(batch.imageCount),
           String(batch.rows),
@@ -39,13 +56,14 @@ export function renderDashboard(root: HTMLElement, onNewBatch: () => void): void
           batch.amount.toFixed(2),
         ]),
         { empty: "No OCR batches yet." },
-      )}
-    </div>
-    <h2>Recent sales</h2>
-    <div class="table-wrap card" style="padding:0">
-      ${table(
+      ) + pagerHtml("dash-batches", batchView, state.batchSize);
+
+    const salesView = paginate(ledger.sales, state.salesPage, state.salesSize);
+    state.salesPage = salesView.page;
+    root.querySelector("#sales-list")!.innerHTML =
+      table(
         ["DateTime", "Amount", "Code", "Name", "Sale no", "Source"],
-        ledger.sales.slice(0, 40).map((sale) => [
+        salesView.slice.map((sale) => [
           sale.datetime,
           sale.amount.toFixed(2),
           sale.productCode,
@@ -54,10 +72,27 @@ export function renderDashboard(root: HTMLElement, onNewBatch: () => void): void
           sale.source,
         ]),
         { lastColumn: "source", empty: ledger.attached ? "No sales in this database." : ATTACH_HINT },
-      )}
-    </div>
-  `;
-  root.querySelector("#new-batch")?.addEventListener("click", onNewBatch);
+      ) + pagerHtml("dash-sales", salesView, state.salesSize);
+
+    bindPager(root, "dash-batches", ({ pageDelta, pageSize }) => {
+      if (pageSize) {
+        state.batchSize = pageSize;
+        state.batchPage = 1;
+      }
+      if (pageDelta) state.batchPage += pageDelta;
+      paint();
+    });
+    bindPager(root, "dash-sales", ({ pageDelta, pageSize }) => {
+      if (pageSize) {
+        state.salesSize = pageSize;
+        state.salesPage = 1;
+      }
+      if (pageDelta) state.salesPage += pageDelta;
+      paint();
+    });
+  };
+
+  paint();
 }
 
 export type LastColumnKind = "status" | "source" | "product" | "none";
