@@ -64,6 +64,30 @@ export function formatDateTime(value: unknown): string {
   return String(value ?? "").replace("T", " ").slice(0, 19);
 }
 
+const SALE_TIME_SHIFT_MIN = 7;
+const SALE_TIME_SHIFT_MAX = 15;
+
+function pad2(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
+export function addSeconds(datetime: string, seconds: number): string {
+  const normalized = formatDateTime(datetime);
+  const [datePart, timePart = "00:00:00"] = normalized.split(" ");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute, second] = timePart.split(":").map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1, hour || 0, minute || 0, second || 0);
+  date.setSeconds(date.getSeconds() + seconds);
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+}
+
+export function randomSaleOffsetSeconds(): number {
+  return (
+    SALE_TIME_SHIFT_MIN +
+    Math.floor(Math.random() * (SALE_TIME_SHIFT_MAX - SALE_TIME_SHIFT_MIN + 1))
+  );
+}
+
 function productLabel(name: string, itemCount: number): string {
   const extra = Math.max(0, itemCount - 1);
   const label = name.trim();
@@ -133,12 +157,16 @@ function paymentTypeId(db: Database): number {
   return Number(scalar(db, "SELECT Id FROM PaymentType ORDER BY Id LIMIT 1") ?? DEBIT_CARD_TYPE_ID);
 }
 
-function existingSaleNumber(db: Database, dt: string): string {
-  const second = dt.slice(0, 19);
+function existingSaleNumber(db: Database, originalDatetime: string): string {
+  const second = formatDateTime(originalDatetime);
   const number = scalar<string>(
     db,
-    "SELECT Number FROM Document WHERE DateCreated = ? OR DateCreated LIKE ? LIMIT 1",
-    [second, `${second}.%`],
+    `SELECT Number FROM Document
+     WHERE DateCreated = ?
+        OR DateCreated LIKE ?
+        OR InternalNote LIKE ?
+     LIMIT 1`,
+    [second, `${second}.%`, `%${second}%`],
   );
   return number ? String(number) : "";
 }
@@ -156,8 +184,9 @@ function setCounter(db: Database, name: string, value: number): void {
   db.run("UPDATE Counter SET Value = ? WHERE Name = ?", [value, name]);
 }
 
-export function ocrBatchNote(batchId: number): string {
-  return `OCR batch ${batchId}`;
+export function ocrBatchNote(batchId: number, originalDatetime?: string): string {
+  const prefix = `OCR batch ${batchId}`;
+  return originalDatetime ? `${prefix} · ${formatDateTime(originalDatetime)}` : prefix;
 }
 
 export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow {
@@ -170,12 +199,10 @@ export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow 
     row.error = "No matched product";
     return row;
   }
-  const dt = row.datetime;
-  const dateOnly = `${dt.split(" ")[0]} 00:00:00`;
-  const year = Number(dt.slice(2, 4));
+  const originalDt = formatDateTime(row.datetime);
   const amount = Number(row.amount);
 
-  const existing = existingSaleNumber(db, dt);
+  const existing = existingSaleNumber(db, originalDt);
   if (existing) {
     row.result = "already added";
     row.saleNumber = existing;
@@ -183,6 +210,10 @@ export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow 
     row.error = "Already added at this DateTime";
     return row;
   }
+
+  const dt = addSeconds(originalDt, randomSaleOffsetSeconds());
+  const dateOnly = `${dt.split(" ")[0]} 00:00:00`;
+  const year = Number(dt.slice(2, 4));
 
   try {
     db.run("BEGIN IMMEDIATE");
@@ -215,7 +246,7 @@ export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow 
         WAREHOUSE_ID,
         dt,
         dt,
-        batchId != null ? ocrBatchNote(batchId) : null,
+        batchId != null ? ocrBatchNote(batchId, originalDt) : null,
         dateOnly,
         PAID_STATUS,
       ],
@@ -258,6 +289,7 @@ export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow 
       ]);
     }
     db.run("COMMIT");
+    row.datetime = dt;
     row.saleNumber = number;
     row.saleTotal = amount;
     row.result = "inserted";

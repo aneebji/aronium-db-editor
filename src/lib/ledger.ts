@@ -3,7 +3,7 @@ import type { CatalogProduct, LedgerSale } from "../types";
 import { loadCatalog, loadSales } from "./aronium";
 import { batchIdForDocument, listBatches } from "./history";
 
-const NOTE_RE = /^OCR batch (\d+)$/i;
+const NOTE_RE = /^OCR batch (\d+)/i;
 
 export function saleSource(internalNote: string, documentNumber: string): string {
   const match = internalNote.trim().match(NOTE_RE);

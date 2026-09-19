@@ -19,8 +19,8 @@ A focused workspace for reading card-terminal transaction history and writing ma
 | --- | --- |
 | **Extract** | Reads DateTime and amount from terminal history screenshots with Tesseract.js plus a dedicated date/amount parser. |
 | **Match** | Picks one enabled product: exact price first, otherwise a nearby random price. Sale total stays the card amount. |
-| **Enter sale** | Writes Aronium-compatible rows (`Document`, `DocumentItem`, `DocumentItemTax`, `Payment`, `Stock`, `Counter`). Schema is not changed. |
-| **Duplicates** | The exact same second is marked **Already added**. A one-second difference is a new sale. |
+| **Enter sale** | Writes Aronium-compatible rows (`Document`, `DocumentItem`, `DocumentItemTax`, `Payment`, `Stock`, `Counter`). Schema is not changed. Each sale DateTime is written with a random extra 7 to 15 seconds. |
+| **Duplicates** | The same original OCR second is marked **Already added**. A one-second difference on the slip is a new sale. |
 | **Ledger** | After you attach `pos.db`, Dashboard, Sales, and Products load the live catalog and existing sales. OCR inserts show a batch number in the Source column; other tickets are marked Original. |
 
 ## From screenshot to sale
