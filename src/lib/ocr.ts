@@ -3,6 +3,7 @@ import { assignAmounts, collectAmounts, finalizeRows, mergeTxnRows, rowsFromItem
 import type { OcrItem, TxnRow } from "../types";
 
 let lastOcrText = "";
+let lastDeclinedCount = 0;
 
 function pageToItems(page: Tesseract.Page): OcrItem[] {
   const items: OcrItem[] = [];
@@ -81,15 +82,26 @@ export async function extractTransactions(file: File, year: number): Promise<Txn
 
   parsed = mergeTxnRows(parsed);
   assignAmounts(parsed, amounts);
-  return finalizeRows(parsed, file.name);
+  const finalized = finalizeRows(parsed, file.name);
+  lastDeclinedCount = finalized.declined;
+  return finalized.rows;
 }
 
 export async function extractMany(files: File[], year: number): Promise<TxnRow[]> {
   const rows: TxnRow[] = [];
-  for (const file of files) rows.push(...(await extractTransactions(file, year)));
+  let declined = 0;
+  for (const file of files) {
+    rows.push(...(await extractTransactions(file, year)));
+    declined += lastDeclinedCount;
+  }
+  lastDeclinedCount = declined;
   return rows.sort((a, b) => b.datetime.localeCompare(a.datetime));
 }
 
 export function getLastOcrText(): string {
   return lastOcrText;
+}
+
+export function getLastDeclinedCount(): number {
+  return lastDeclinedCount;
 }

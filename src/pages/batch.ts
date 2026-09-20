@@ -2,9 +2,9 @@ import { insertRows, loadProducts } from "../lib/aronium";
 import { connectedName, getDatabase, persistAndDownloadPair, snapshotBytes } from "../lib/db-file";
 import { peekNextBatchId, saveBatch } from "../lib/history";
 import { matchRows } from "../lib/matcher";
-import { extractMany, getLastOcrText } from "../lib/ocr";
-import { loadSettings } from "../lib/settings";
-import { displayStatus, isValidRow, type Product, type TxnRow } from "../types";
+import { extractMany, getLastDeclinedCount, getLastOcrText } from "../lib/ocr";
+import { activeBranch, loadSettings } from "../lib/settings";
+import { displayStatus, isValidRow, type PaymentMethod, type Product, type TxnRow } from "../types";
 import { escapeHtml, statusClass } from "./dashboard";
 
 interface BatchState {
@@ -40,11 +40,17 @@ export function resetBatch(): void {
 
 export function renderBatch(root: HTMLElement, onFinished: () => void): void {
   root.innerHTML = `
+    <div class="page-head">
+      <div>
+        <p class="kicker">Intake</p>
+        <h1>New batch</h1>
+      </div>
+    </div>
     <div class="steps">
-      <div class="pill" data-step="1">1  Setup</div>
-      <div class="pill" data-step="2">2  Extract</div>
-      <div class="pill" data-step="3">3  Match</div>
-      <div class="pill" data-step="4">4  Sales</div>
+      <div class="pill" data-step="1">1 Setup</div>
+      <div class="pill" data-step="2">2 Extract</div>
+      <div class="pill" data-step="3">3 Match</div>
+      <div class="pill" data-step="4">4 Sales</div>
     </div>
     <div class="toolbar">
       <button class="btn ghost" id="back">Back</button>
@@ -73,10 +79,10 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         <button class="btn" id="rematch">Rematch random</button>
         <span class="muted grow" id="summary"></span>
       </div>
-      <div class="table-wrap card" style="padding:0">
+      <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>DateTime</th><th>Price</th><th>Product code</th><th>Name</th><th>Status</th></tr>
+            <tr><th>DateTime</th><th>Price</th><th>Payment</th><th>Product code</th><th>Name</th><th>Status</th></tr>
           </thead>
           <tbody id="rows"></tbody>
         </table>
@@ -90,9 +96,10 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
   const rematch = root.querySelector<HTMLButtonElement>("#rematch")!;
 
   const refreshHint = () => {
+    const shop = activeBranch().name;
     root.querySelector("#db-hint")!.textContent = connectedName()
-      ? `Using the database from Settings · ${connectedName()}`
-      : "No database is attached. Open Settings to select pos.db before matching and writing sales.";
+      ? `Using ${shop} · ${connectedName()}`
+      : "No database is attached. Open Settings to select a shop and pos.db before matching and writing sales.";
   };
 
   const refreshThumbs = () => {
@@ -112,6 +119,12 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         return `<tr data-id="${row.rowId}" class="${state.selected === row.rowId ? "selected" : ""}">
           <td>${escapeHtml(row.datetime)}</td>
           <td>${row.amount.toFixed(2)}</td>
+          <td>
+            <select class="pay" data-id="${row.rowId}" aria-label="Payment" ${state.saleDone ? "disabled" : ""}>
+              <option value="debit"${row.paymentMethod !== "cash" ? " selected" : ""}>Debit card</option>
+              <option value="cash"${row.paymentMethod === "cash" ? " selected" : ""}>Cash</option>
+            </select>
+          </td>
           <td>${escapeHtml(row.productCode)}</td>
           <td>${escapeHtml(row.productName)}</td>
           <td class="${statusClass(statusText)}">${escapeHtml(statusText)}</td>
@@ -134,6 +147,14 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         refreshTable();
       });
       tr.addEventListener("dblclick", () => editSelected());
+    });
+    body.querySelectorAll<HTMLSelectElement>("select.pay").forEach((select) => {
+      select.addEventListener("click", (event) => event.stopPropagation());
+      select.addEventListener("change", (event) => {
+        event.stopPropagation();
+        const row = state.rows.find((item) => item.rowId === select.dataset.id);
+        if (row) row.paymentMethod = select.value === "cash" ? "cash" : "debit";
+      });
     });
   };
 
@@ -173,6 +194,11 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
       <input id="dt" value="${escapeHtml(row.datetime)}" />
       <label>Amount</label>
       <input id="amt" value="${row.amount.toFixed(2)}" />
+      <label>Payment</label>
+      <select id="pay">
+        <option value="debit"${row.paymentMethod !== "cash" ? " selected" : ""}>Debit card</option>
+        <option value="cash"${row.paymentMethod === "cash" ? " selected" : ""}>Cash</option>
+      </select>
       <div class="toolbar" style="margin-top:16px">
         <button class="btn" id="save-row">Save</button>
         <button class="btn ghost" id="cancel-row">Cancel</button>
@@ -187,8 +213,10 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         alert("Please check the date and amount.");
         return;
       }
+      const payment = overlay.querySelector<HTMLSelectElement>("#pay")!.value as PaymentMethod;
       row.datetime = datetime;
       row.amount = Math.round(amount * 100) / 100;
+      row.paymentMethod = payment === "cash" ? "cash" : "debit";
       row.status = "ok";
       row.error = "";
       overlay.remove();
@@ -262,13 +290,20 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
       setBusy(true, "Extracting datetime and amount…");
       try {
         state.rows = await extractMany(state.files, loadSettings().year);
+        const declined = getLastDeclinedCount();
         if (!state.rows.length) {
+          if (declined) {
+            alert(`${declined} declined ${declined === 1 ? "transaction was" : "transactions were"} ignored. No approved sales found.`);
+            return;
+          }
           const extra = getLastOcrText().trim();
           alert(extra ? `Could not find a date and amount.\n\nOCR text:\n${extra.slice(0, 400)}` : "Could not find a date and amount in the image.");
           return;
         }
         showStep(2);
-        status.textContent = `Extracted ${state.rows.length} transactions`;
+        status.textContent = declined
+          ? `Extracted ${state.rows.length} transactions · ${declined} declined ignored`
+          : `Extracted ${state.rows.length} transactions`;
       } catch (error) {
         alert(error instanceof Error ? error.message : String(error));
       } finally {

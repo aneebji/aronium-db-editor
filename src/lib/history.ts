@@ -135,7 +135,7 @@ export function dashboardStats(): {
     batches: store.batches.length,
     inserted: store.batches.reduce((sum, batch) => sum + batch.inserted, 0),
     amount: store.batches.reduce((sum, batch) => sum + batch.amount, 0),
-    lastRun: store.batches[0]?.createdAt ?? "—",
+    lastRun: store.batches[0]?.createdAt ?? "-",
     recentBatches: store.batches.slice(0, 20),
     recentSales: store.sales.slice(0, 40),
   };

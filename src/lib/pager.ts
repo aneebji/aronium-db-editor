@@ -34,7 +34,7 @@ export function pagerHtml(
   if (!state.total) return "";
   return `
     <div class="pager" data-pager="${id}">
-      <span class="muted">${state.from}–${state.to} of ${state.total}</span>
+      <span class="muted">${state.from}-${state.to} of ${state.total}</span>
       <label class="muted">Per page
         <select data-size aria-label="Rows per page">
           ${PAGE_SIZES.map(

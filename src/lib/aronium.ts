@@ -8,6 +8,7 @@ const USER_ID = 1;
 const CUSTOMER_ID = 1;
 const PAID_STATUS = 2;
 const DEBIT_CARD_TYPE_ID = 3;
+const CASH_TYPE_ID = 1;
 const DEFAULT_TAX_RATE = 15;
 
 function scalar<T = unknown>(db: Database, sql: string, params: unknown[] = []): T | undefined {
@@ -65,7 +66,7 @@ export function formatDateTime(value: unknown): string {
 }
 
 const SALE_TIME_SHIFT_MIN = 7;
-const SALE_TIME_SHIFT_MAX = 15;
+const SALE_TIME_SHIFT_MAX = 20;
 
 function pad2(value: number): string {
   return value.toString().padStart(2, "0");
@@ -148,7 +149,12 @@ function taxId(db: Database): number {
   return Number(scalar(db, "SELECT Id FROM Tax WHERE IsEnabled = 1 ORDER BY Id LIMIT 1") ?? 1);
 }
 
-function paymentTypeId(db: Database): number {
+function paymentTypeId(db: Database, method: "debit" | "cash" = "debit"): number {
+  if (method === "cash") {
+    const cash = scalar<number>(db, "SELECT Id FROM PaymentType WHERE Name LIKE '%Cash%' LIMIT 1");
+    if (cash != null) return Number(cash);
+    return Number(scalar(db, "SELECT Id FROM PaymentType ORDER BY Id LIMIT 1") ?? CASH_TYPE_ID);
+  }
   const card = scalar<number>(
     db,
     "SELECT Id FROM PaymentType WHERE Name LIKE '%Debit%' OR Name LIKE '%Card%' LIMIT 1",
@@ -219,7 +225,7 @@ export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow 
     db.run("BEGIN IMMEDIATE");
     const rate = taxRate(db);
     const tax = taxId(db);
-    const payType = paymentTypeId(db);
+    const payType = paymentTypeId(db, row.paymentMethod === "cash" ? "cash" : "debit");
     const docCounterName = `Document.${SALES_TYPE_CODE}.20${year.toString().padStart(2, "0")}`;
     const nextSeq = counter(db, docCounterName, 0) + 1;
     const nextReceipt = counter(db, "Receipt", 0) + 1;

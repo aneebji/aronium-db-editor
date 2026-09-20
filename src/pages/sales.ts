@@ -10,13 +10,18 @@ export function renderSales(root: HTMLElement): void {
   const name = connectedName();
   const state = { page: 1, pageSize: 10 as PageSize };
   root.innerHTML = `
-    <h1>Sales</h1>
-    <p class="lead">Every sale in the attached database. OCR entries show a batch number; existing Aronium tickets are marked Original.</p>
+    <div class="page-head">
+      <div>
+        <p class="kicker">Ledger</p>
+        <h1>Sales</h1>
+        <p class="lead">Every sale in the attached database. OCR entries show a batch number; existing Aronium tickets are marked Original.</p>
+      </div>
+    </div>
     <div class="toolbar">
       <input class="grow" id="search" placeholder="Search date, product, sale number, or source" ${ledger.attached ? "" : "disabled"} />
     </div>
     <p class="muted" id="meta"></p>
-    <div class="table-wrap card" style="padding:0" id="list"></div>
+    <div class="table-wrap" id="list"></div>
   `;
   const search = root.querySelector<HTMLInputElement>("#search")!;
   const paint = () => {

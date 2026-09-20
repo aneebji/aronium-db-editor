@@ -52,6 +52,20 @@ export function parseAmount(text: string, txnId = ""): number | null {
   return value > 0 && value < 100000 ? value : null;
 }
 
+const DECLINED_TOKEN_RE = /^(DEC(?:LINED)?|DEO|DFC)$/i;
+
+export function isDeclinedTxn(text: string): boolean {
+  const compact = text.trim().replace(/\s+/g, " ");
+  DATE_RE.lastIndex = 0;
+  const match = DATE_RE.exec(compact);
+  if (!match || match.index == null) return false;
+  return compact
+    .slice(0, match.index)
+    .trim()
+    .split(/\s+/)
+    .some((token) => DECLINED_TOKEN_RE.test(token));
+}
+
 function isHeaderOnly(text: string): boolean {
   const compact = text.trim().replace(/\s+/g, " ");
   if (HEADER_ONLY_RE.test(compact)) return true;
@@ -85,6 +99,14 @@ export function parseLine(text: string, year: number): TxnRow | null {
   const txnMatch = TXN_RE.exec(rest) || TXN_RE.exec(compact);
   const txnId = txnMatch?.[1] ?? "";
   const amount = parseAmount(rest, txnId) ?? parseAmount(compact, txnId);
+  if (isDeclinedTxn(compact)) {
+    return createTxnRow({
+      datetime: parsed.iso,
+      amount: amount == null ? 0 : Math.round(amount * 100) / 100,
+      txnId,
+      status: "declined",
+    });
+  }
   if (amount == null) {
     return createTxnRow({ datetime: parsed.iso, amount: 0, txnId, status: "partial" });
   }
@@ -98,7 +120,8 @@ export function extractFromBlob(blob: string, year: number): TxnRow[] {
   matches.forEach((match, index) => {
     const end = index + 1 < matches.length ? matches[index + 1].index ?? cleaned.length : cleaned.length;
     const start = match.index ?? 0;
-    const row = parseLine(cleaned.slice(start, end), year);
+    const lookback = cleaned.slice(Math.max(0, start - 48), start);
+    const row = parseLine(lookback + cleaned.slice(start, end), year);
     if (row) rows.push(row);
   });
   return rows;
@@ -145,7 +168,7 @@ export function rowsFromItems(items: OcrItem[], year: number): TxnRow[] {
 
 export function assignAmounts(rows: TxnRow[], amounts: number[]): void {
   if (!rows.length || !amounts.length) return;
-  const ordered = [...rows].sort((a, b) => b.datetime.localeCompare(a.datetime));
+  const ordered = [...rows].filter((row) => row.status !== "declined").sort((a, b) => b.datetime.localeCompare(a.datetime));
   if (ordered.length === amounts.length) {
     ordered.forEach((row, index) => {
       if (row.amount <= 0) {
@@ -175,6 +198,10 @@ export function mergeTxnRows(rows: TxnRow[]): TxnRow[] {
   const byDt = new Map<string, TxnRow>();
   const extras: TxnRow[] = [];
   for (const row of rows) {
+    if (row.status === "declined") {
+      extras.push(row);
+      continue;
+    }
     const prev = byDt.get(row.datetime);
     if (!prev) {
       byDt.set(row.datetime, row);
@@ -195,10 +222,18 @@ export function mergeTxnRows(rows: TxnRow[]): TxnRow[] {
   return [...byDt.values(), ...extras];
 }
 
-export function finalizeRows(rows: TxnRow[], imageName: string): TxnRow[] {
+export function finalizeRows(rows: TxnRow[], imageName: string): { rows: TxnRow[]; declined: number } {
   const seen = new Set<string>();
   const out: TxnRow[] = [];
+  let declined = 0;
   for (const row of rows) {
+    if (row.status === "declined") {
+      const key = `dec|${row.datetime}|${row.amount}|${row.txnId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      declined += 1;
+      continue;
+    }
     if (row.amount <= 0) continue;
     row.status = "ok";
     const key = `${row.datetime}|${row.amount}|${row.txnId}`;
@@ -207,5 +242,5 @@ export function finalizeRows(rows: TxnRow[], imageName: string): TxnRow[] {
     row.imageName = imageName;
     out.push(row);
   }
-  return out.sort((a, b) => b.datetime.localeCompare(a.datetime));
+  return { rows: out.sort((a, b) => b.datetime.localeCompare(a.datetime)), declined };
 }

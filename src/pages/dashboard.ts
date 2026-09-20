@@ -2,6 +2,7 @@ import { connectedName, getDatabase } from "../lib/db-file";
 import { listBatches } from "../lib/history";
 import { ledgerSnapshot } from "../lib/ledger";
 import { bindPager, paginate, pagerHtml, type PageSize } from "../lib/pager";
+import { activeBranch } from "../lib/settings";
 
 const ATTACH_HINT = "Attach a database in Settings to load the catalog and sales ledger.";
 
@@ -17,26 +18,31 @@ export function renderDashboard(root: HTMLElement, onNewBatch: () => void): void
   };
 
   root.innerHTML = `
-    <h1>Dashboard</h1>
-    <p class="lead">OCR, match, and ledger on this device.</p>
-    <div class="stats">
-      <div class="card"><div class="label">Products</div><div class="value">${ledger.productCount}</div></div>
-      <div class="card"><div class="label">Sales</div><div class="value">${ledger.salesCount}</div></div>
-      <div class="card"><div class="label">OCR batches</div><div class="value">${ledger.ocrBatches}</div></div>
-      <div class="card"><div class="label">Ledger total</div><div class="value">${ledger.ledgerTotal.toFixed(2)}</div></div>
+    <div class="page-head">
+      <div>
+        <p class="kicker">Workspace</p>
+        <h1>Dashboard</h1>
+        <p class="lead">OCR, match, and ledger on this device.</p>
+      </div>
     </div>
+    <dl class="metrics">
+      <div><dt>Products</dt><dd>${ledger.productCount}</dd></div>
+      <div><dt>Sales</dt><dd>${ledger.salesCount}</dd></div>
+      <div><dt>OCR batches</dt><dd>${ledger.ocrBatches}</dd></div>
+      <div><dt>Ledger total</dt><dd>${ledger.ledgerTotal.toFixed(2)}</dd></div>
+    </dl>
     <div class="toolbar">
       <button class="btn" id="new-batch">New batch</button>
       <span class="muted">${
         name
-          ? `Database · ${escapeHtml(name)} · ${ledger.productCount} products · ${ledger.salesCount} sales`
+          ? `${escapeHtml(activeBranch().name)} · ${escapeHtml(name)} · ${ledger.productCount} products · ${ledger.salesCount} sales`
           : ATTACH_HINT
       }</span>
     </div>
     <h2>Recent batches</h2>
-    <div class="table-wrap card" style="padding:0" id="batch-list"></div>
+    <div class="table-wrap" id="batch-list"></div>
     <h2>Recent sales</h2>
-    <div class="table-wrap card" style="padding:0" id="sales-list"></div>
+    <div class="table-wrap" id="sales-list"></div>
   `;
   root.querySelector("#new-batch")?.addEventListener("click", onNewBatch);
 
@@ -103,7 +109,7 @@ export function table(
   options?: { lastColumn?: LastColumnKind; empty?: string },
 ): string {
   if (!rows.length) {
-    return `<p class="muted" style="padding:16px">${escapeHtml(options?.empty ?? "No entries yet.")}</p>`;
+    return `<div class="empty"><p>${escapeHtml(options?.empty ?? "No entries yet.")}</p></div>`;
   }
   const kind = options?.lastColumn ?? "none";
   return `<table><thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>

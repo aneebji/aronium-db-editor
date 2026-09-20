@@ -11,14 +11,19 @@ export function renderProducts(root: HTMLElement): void {
   const enabled = ledger.products.filter((product) => product.enabled).length;
   const state = { page: 1, pageSize: 10 as PageSize };
   root.innerHTML = `
-    <h1>Products</h1>
-    <p class="lead">Full catalog from the attached database.</p>
+    <div class="page-head">
+      <div>
+        <p class="kicker">Catalog</p>
+        <h1>Products</h1>
+        <p class="lead">Full catalog from the attached database.</p>
+      </div>
+    </div>
     <p class="muted">${
       ledger.attached
         ? `${name} · ${ledger.productCount} products · ${enabled} enabled`
         : ATTACH_HINT
     }</p>
-    <div class="table-wrap card" style="padding:0" id="list"></div>
+    <div class="table-wrap" id="list"></div>
   `;
   const paint = () => {
     const view = paginate(ledger.products, state.page, state.pageSize);
