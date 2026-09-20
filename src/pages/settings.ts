@@ -17,7 +17,8 @@ import {
   type BranchId,
   type ThemeId,
 } from "../lib/settings";
-import { escapeHtml } from "./dashboard";
+import { flaggedList } from "../lib/product-flags";
+import { escapeHtml, table } from "./dashboard";
 
 export function renderSettings(root: HTMLElement, onAttached: () => void): void {
   const settings = loadSettings();
@@ -60,6 +61,11 @@ export function renderSettings(root: HTMLElement, onAttached: () => void): void 
       </div>
     </div>
     <div class="card">
+      <strong id="exempt-title">Exempt</strong>
+      <p class="muted" id="exempt-hint"></p>
+      <div class="table-wrap exempt-preview" id="exempt-preview"></div>
+    </div>
+    <div class="card">
       <strong>Default year</strong>
       <p class="muted">Used when screenshots omit the year, for example 13 Sep.</p>
       <input id="year" type="number" value="${settings.year}" />
@@ -80,6 +86,22 @@ export function renderSettings(root: HTMLElement, onAttached: () => void): void 
   const themeSelect = root.querySelector<HTMLSelectElement>("#theme")!;
   const activeSelect = root.querySelector<HTMLSelectElement>("#active-branch")!;
 
+  const paintExempt = () => {
+    const current = loadSettings();
+    const shop = current.branches.find((branch) => branch.id === current.activeBranchId);
+    const id = shop?.id ?? "shop-1";
+    const name = shop?.name ?? "Shop 1";
+    const list = flaggedList(id);
+    root.querySelector("#exempt-title")!.textContent = `Exempt products · ${name}`;
+    root.querySelector("#exempt-hint")!.textContent =
+      `${list.length} products. Match and Enter Sale skip these.`;
+    root.querySelector("#exempt-preview")!.innerHTML = table(
+      ["Code", "Name"],
+      list.map((item) => [item.code || "—", item.name]),
+      { empty: "No exempt products for this shop." },
+    );
+  };
+
   const refreshActiveOptions = () => {
     const next = loadSettings();
     activeSelect.innerHTML = next.branches
@@ -88,6 +110,7 @@ export function renderSettings(root: HTMLElement, onAttached: () => void): void 
           `<option value="${branch.id}"${branch.id === next.activeBranchId ? " selected" : ""}>${escapeHtml(branch.name)}</option>`,
       )
       .join("");
+    paintExempt();
   };
 
   const paintStatus = async (id: BranchId) => {
@@ -115,6 +138,7 @@ export function renderSettings(root: HTMLElement, onAttached: () => void): void 
       alert("Re-attach pos.db for this shop. The saved file handle is missing or permission was denied.");
     }
     await Promise.all(loadSettings().branches.map((branch) => paintStatus(branch.id)));
+    paintExempt();
   });
 
   root.querySelectorAll<HTMLInputElement>(".branch-name").forEach((input) => {
@@ -175,6 +199,7 @@ export function renderSettings(root: HTMLElement, onAttached: () => void): void 
     alert("Settings saved on this device.");
   });
 
+  paintExempt();
   void Promise.all(settings.branches.map((branch) => paintStatus(branch.id)));
 }
 

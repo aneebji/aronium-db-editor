@@ -1,5 +1,7 @@
 import type { Database } from "sql.js";
 import type { CatalogProduct, LedgerSale, Product, TxnRow } from "../types";
+import { isBlockedProduct } from "./product-flags";
+import { activeBranch } from "./settings";
 
 const SALES_TYPE_ID = 2;
 const SALES_TYPE_CODE = 200;
@@ -218,6 +220,11 @@ export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow 
   if (!row.productId) {
     row.result = "failed";
     row.error = "No matched product";
+    return row;
+  }
+  if (isBlockedProduct({ code: row.productCode, name: row.productName }, activeBranch().id)) {
+    row.result = "failed";
+    row.error = "Blocked product";
     return row;
   }
   const originalDt = formatDateTime(row.originalDatetime || row.datetime);

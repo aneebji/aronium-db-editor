@@ -1,5 +1,6 @@
 export type PageId = "dash" | "batch" | "sales" | "products" | "settings";
 export type PaymentMethod = "debit" | "cash";
+export type RowOrigin = "extract" | "extra";
 
 export interface Product {
   id: number;
@@ -44,6 +45,7 @@ export interface TxnRow {
   result: string;
   error: string;
   paymentMethod: PaymentMethod;
+  origin: RowOrigin;
 }
 
 export interface OcrItem {
@@ -107,6 +109,7 @@ export function createTxnRow(partial: Partial<TxnRow> & Pick<TxnRow, "datetime" 
     result: partial.result ?? "",
     error: partial.error ?? "",
     paymentMethod: partial.paymentMethod === "cash" ? "cash" : "debit",
+    origin: partial.origin === "extra" ? "extra" : "extract",
   };
 }
 

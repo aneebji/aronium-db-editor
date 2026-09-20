@@ -1,8 +1,9 @@
 import { addSeconds, formatDateTime, insertRows, loadProducts, randomSaleOffsetSeconds } from "../lib/aronium";
 import { connectedName, getDatabase, persistAndDownloadPair, snapshotBytes } from "../lib/db-file";
 import { peekNextBatchId, saveBatch } from "../lib/history";
-import { matchRows } from "../lib/matcher";
+import { createExtraCashSales, extractDatetimes, matchRows } from "../lib/matcher";
 import { extractMany, getLastDeclinedCount, getLastOcrText } from "../lib/ocr";
+import { allowedProducts } from "../lib/product-flags";
 import { activeBranch, loadSettings } from "../lib/settings";
 import { displayStatus, isValidRow, type PaymentMethod, type Product, type TxnRow } from "../types";
 import { escapeHtml, statusClass } from "./dashboard";
@@ -77,6 +78,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         <button class="btn ghost" id="edit">Edit selected</button>
         <button class="btn ghost" id="skip">Skip / unskip</button>
         <button class="btn" id="rematch">Rematch random</button>
+        <button class="btn ghost" id="extra">Add extra</button>
         <span class="muted grow" id="summary"></span>
       </div>
       <div class="table-wrap">
@@ -94,6 +96,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
   const next = root.querySelector<HTMLButtonElement>("#next")!;
   const back = root.querySelector<HTMLButtonElement>("#back")!;
   const rematch = root.querySelector<HTMLButtonElement>("#rematch")!;
+  const extra = root.querySelector<HTMLButtonElement>("#extra")!;
 
   const refreshHint = () => {
     const shop = activeBranch().name;
@@ -168,6 +171,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
     next.textContent = step === 1 ? "Extract" : step === 2 ? "Next  ·  Match" : step === 3 ? "Enter Sale" : "Go to Dashboard";
     back.disabled = state.busy || state.saleDone || step === 1;
     rematch.disabled = step !== 3 || state.saleDone;
+    extra.disabled = step !== 3 || state.saleDone;
     refreshTable();
   };
 
@@ -230,7 +234,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
   const products = (): Product[] => {
     const db = getDatabase();
     if (!db) return [];
-    return loadProducts(db);
+    return allowedProducts(loadProducts(db), activeBranch().id);
   };
 
   const setBusy = (busy: boolean, text = "") => {
@@ -269,9 +273,64 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
     status.textContent = "Products rematched at random.";
   });
 
+  const addExtraSales = () => {
+    if (state.step !== 3 || state.saleDone) return;
+    const dates = extractDatetimes(state.rows);
+    if (!dates.length) {
+      alert("Extract at least one date first.");
+      return;
+    }
+    if (!products().length) {
+      alert("Attach pos.db in Settings before adding extra sales.");
+      return;
+    }
+    const overlay = document.createElement("div");
+    overlay.className = "dialog";
+    overlay.innerHTML = `<div class="card">
+      <h3>Add extra sales</h3>
+      <label>Extracted date</label>
+      <select id="extra-date">
+        ${dates.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")}
+      </select>
+      <label>How many</label>
+      <input id="extra-count" type="number" min="1" max="50" step="1" value="1" />
+      <div class="toolbar" style="margin-top:16px">
+        <button class="btn" id="apply-extra">Apply</button>
+        <button class="btn ghost" id="cancel-extra">Cancel</button>
+      </div>
+    </div>`;
+    document.body.append(overlay);
+    overlay.querySelector("#cancel-extra")?.addEventListener("click", () => overlay.remove());
+    overlay.querySelector("#apply-extra")?.addEventListener("click", () => {
+      const datetime = overlay.querySelector<HTMLSelectElement>("#extra-date")!.value;
+      const count = Number(overlay.querySelector<HTMLInputElement>("#extra-count")!.value);
+      if (!datetime || !Number.isFinite(count) || count < 1) {
+        alert("Choose a date and a count of at least 1.");
+        return;
+      }
+      const extras = createExtraCashSales(
+        datetime,
+        count,
+        products(),
+        state.rows.map((row) => row.datetime),
+      );
+      if (!extras.length) {
+        alert("No products available to add extra sales.");
+        return;
+      }
+      state.rows.push(...extras);
+      state.rows.sort((a, b) => b.datetime.localeCompare(a.datetime));
+      overlay.remove();
+      refreshTable();
+      status.textContent = `Added ${extras.length} cash ${extras.length === 1 ? "sale" : "sales"} near ${datetime}.`;
+    });
+  };
+  extra.addEventListener("click", addExtraSales);
+
   back.addEventListener("click", () => {
     if (state.busy || state.saleDone) return;
     if (state.step === 3) {
+      state.rows = state.rows.filter((row) => row.origin !== "extra");
       for (const row of state.rows) {
         row.productId = null;
         row.productCode = "";
@@ -292,7 +351,11 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
       }
       setBusy(true, "Extracting datetime and amount…");
       try {
-        state.rows = await extractMany(state.files, loadSettings().year);
+        state.rows = (await extractMany(state.files, loadSettings().year)).map((row) => {
+          row.paymentMethod = "debit";
+          row.origin = "extract";
+          return row;
+        });
         const declined = getLastDeclinedCount();
         if (!state.rows.length) {
           if (declined) {

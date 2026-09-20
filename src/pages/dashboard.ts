@@ -129,7 +129,10 @@ export function table(
 export function lastColumnClass(value: string, kind: LastColumnKind): string {
   if (kind === "source") return sourceClass(value);
   if (kind === "status") return statusClass(value);
-  if (kind === "product") return value === "Enabled" ? "status-ok" : "source-original";
+  if (kind === "product") {
+    if (value === "Exempt") return "status-fail";
+    return value === "Enabled" ? "status-ok" : "source-original";
+  }
   return "";
 }
 
