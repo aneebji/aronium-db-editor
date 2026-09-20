@@ -198,8 +198,8 @@ h2 {
 }
 
 .metrics {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0 0 18px;
   border: 1px solid var(--line);
   background: var(--bg-raised);
@@ -207,7 +207,7 @@ h2 {
 }
 
 .metrics > div {
-  flex: 1 1 140px;
+  min-width: 0;
   padding: 12px 16px;
   border-right: 1px solid var(--line);
 }
@@ -400,6 +400,13 @@ td {
   white-space: nowrap;
 }
 
+td:nth-child(4),
+td:nth-child(5) {
+  white-space: normal;
+  min-width: 8rem;
+  max-width: 22rem;
+}
+
 td {
   font-variant-numeric: tabular-nums;
 }
@@ -543,14 +550,20 @@ tr.selected td {
     padding-top: 20px;
   }
 
-  .metrics > div {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    flex-basis: 50%;
+  .metrics {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .metrics > div:nth-last-child(-n + 2) {
-    border-bottom: 0;
+  .metrics > div:nth-child(odd) {
+    border-right: 1px solid var(--line);
+  }
+
+  .metrics > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .metrics > div:nth-child(2) {
+    border-right: 0;
   }
 
   .steps {
