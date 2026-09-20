@@ -52,18 +52,32 @@ export function parseAmount(text: string, txnId = ""): number | null {
   return value > 0 && value < 100000 ? value : null;
 }
 
-const DECLINED_TOKEN_RE = /^(DEC(?:LINED)?|DEO|DFC)$/i;
+const DECLINED_LETTERS = new Set(["DEC", "DECL", "DECLIN", "DECLINE", "DECLINED", "DEO", "DFC", "DLC", "OEC", "PEC", "BEC"]);
+
+function lettersOnly(token: string): string {
+  return token.replace(/[^A-Za-z]/g, "").toUpperCase();
+}
+
+export function isDeclinedToken(token: string): boolean {
+  const letters = lettersOnly(token);
+  if (!letters || letters === "DECEMBER" || letters.startsWith("APP")) return false;
+  return DECLINED_LETTERS.has(letters) || (letters.startsWith("DEC") && letters !== "DECEMBER");
+}
+
+export function hasDeclinedType(text: string): boolean {
+  return text
+    .trim()
+    .replace(/\s+/g, " ")
+    .split(/\s+/)
+    .some((token) => isDeclinedToken(token));
+}
 
 export function isDeclinedTxn(text: string): boolean {
   const compact = text.trim().replace(/\s+/g, " ");
   DATE_RE.lastIndex = 0;
   const match = DATE_RE.exec(compact);
-  if (!match || match.index == null) return false;
-  return compact
-    .slice(0, match.index)
-    .trim()
-    .split(/\s+/)
-    .some((token) => DECLINED_TOKEN_RE.test(token));
+  const before = match && match.index != null ? compact.slice(0, match.index) : compact;
+  return hasDeclinedType(before);
 }
 
 function isHeaderOnly(text: string): boolean {
@@ -128,8 +142,14 @@ export function extractFromBlob(blob: string, year: number): TxnRow[] {
   matches.forEach((match, index) => {
     const end = index + 1 < matches.length ? matches[index + 1].index ?? cleaned.length : cleaned.length;
     const start = match.index ?? 0;
+    const prevEnd = index === 0 ? 0 : (matches[index - 1].index ?? 0) + matches[index - 1][0].length;
+    const typeWindow = cleaned.slice(prevEnd, start);
     const row = parseLine(prefixForDate(cleaned, start) + cleaned.slice(start, end), year);
-    if (row) rows.push(row);
+    if (!row) return;
+    if (hasDeclinedType(typeWindow) || isDeclinedTxn(typeWindow + " " + cleaned.slice(start, end))) {
+      row.status = "declined";
+    }
+    rows.push(row);
   });
   return rows;
 }
@@ -166,9 +186,21 @@ export function collectAmounts(items: OcrItem[]): number[] {
   return values.sort((a, b) => a.y - b.y).map((item) => item.amount);
 }
 
+function leadingType(line: string): string {
+  const token = line.trim().split(/\s+/)[0] ?? "";
+  if (isDeclinedToken(token) || lettersOnly(token).startsWith("APP")) return token;
+  return "";
+}
+
 export function rowsFromItems(items: OcrItem[], year: number): TxnRow[] {
   const rows: TxnRow[] = [];
-  for (const { line } of groupLines(items)) rows.push(...extractFromBlob(line, year));
+  const lines = groupLines(items);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].line;
+    const prevType = index > 0 ? leadingType(lines[index - 1].line) : "";
+    const prefixed = prevType && !leadingType(line) ? `${prevType} ${line}` : line;
+    rows.push(...extractFromBlob(prefixed, year));
+  }
   rows.push(...extractFromBlob(items.map((item) => item.text).join(" "), year));
   return rows;
 }
@@ -222,12 +254,24 @@ function keepBetter(prev: TxnRow, next: TxnRow): TxnRow {
   return prev;
 }
 
+function allKeys(row: TxnRow): string[] {
+  const keys = [clockKey(row)];
+  if (row.txnId) keys.push(`t|${row.datetime.slice(5, 7)}|${row.datetime.slice(11, 19)}`);
+  return keys;
+}
+
 export function mergeTxnRows(rows: TxnRow[]): TxnRow[] {
+  const declinedKeys = new Set<string>();
+  for (const row of rows) {
+    if (row.status === "declined") {
+      for (const key of allKeys(row)) declinedKeys.add(key);
+    }
+  }
   const byKey = new Map<string, TxnRow>();
   const extras: TxnRow[] = [];
   for (const row of rows) {
-    if (row.status === "declined") {
-      extras.push(row);
+    if (row.status === "declined" || allKeys(row).some((key) => declinedKeys.has(key))) {
+      extras.push({ ...row, status: "declined" });
       continue;
     }
     const key = clockKey(row);
