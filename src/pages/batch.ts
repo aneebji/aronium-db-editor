@@ -1,4 +1,4 @@
-import { insertRows, loadProducts } from "../lib/aronium";
+import { addSeconds, formatDateTime, insertRows, loadProducts, randomSaleOffsetSeconds } from "../lib/aronium";
 import { connectedName, getDatabase, persistAndDownloadPair, snapshotBytes } from "../lib/db-file";
 import { peekNextBatchId, saveBatch } from "../lib/history";
 import { matchRows } from "../lib/matcher";
@@ -214,7 +214,10 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         return;
       }
       const payment = overlay.querySelector<HTMLSelectElement>("#pay")!.value as PaymentMethod;
-      row.datetime = datetime;
+      row.datetime =
+        formatDateTime(datetime) === formatDateTime(row.originalDatetime)
+          ? addSeconds(row.originalDatetime, randomSaleOffsetSeconds())
+          : datetime;
       row.amount = Math.round(amount * 100) / 100;
       row.paymentMethod = payment === "cash" ? "cash" : "debit";
       row.status = "ok";

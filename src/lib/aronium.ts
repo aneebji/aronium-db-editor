@@ -89,6 +89,21 @@ export function randomSaleOffsetSeconds(): number {
   );
 }
 
+export function applySaleTimeOffsets(rows: TxnRow[]): TxnRow[] {
+  const used = new Set<string>();
+  for (const row of rows) {
+    const original = formatDateTime(row.originalDatetime || row.datetime);
+    row.originalDatetime = original;
+    let next = addSeconds(original, randomSaleOffsetSeconds());
+    for (let attempt = 0; attempt < 30 && used.has(next); attempt += 1) {
+      next = addSeconds(original, randomSaleOffsetSeconds());
+    }
+    used.add(next);
+    row.datetime = next;
+  }
+  return rows;
+}
+
 function productLabel(name: string, itemCount: number): string {
   const extra = Math.max(0, itemCount - 1);
   const label = name.trim();
@@ -205,7 +220,7 @@ export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow 
     row.error = "No matched product";
     return row;
   }
-  const originalDt = formatDateTime(row.datetime);
+  const originalDt = formatDateTime(row.originalDatetime || row.datetime);
   const amount = Number(row.amount);
 
   const existing = existingSaleNumber(db, originalDt);
@@ -217,7 +232,10 @@ export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow 
     return row;
   }
 
-  const dt = addSeconds(originalDt, randomSaleOffsetSeconds());
+  let dt = formatDateTime(row.datetime);
+  if (dt === originalDt) {
+    dt = addSeconds(originalDt, randomSaleOffsetSeconds());
+  }
   const dateOnly = `${dt.split(" ")[0]} 00:00:00`;
   const year = Number(dt.slice(2, 4));
 

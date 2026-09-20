@@ -28,6 +28,7 @@ export interface LedgerSale {
 export interface TxnRow {
   rowId: string;
   datetime: string;
+  originalDatetime: string;
   amount: number;
   txnId: string;
   imageName: string;
@@ -90,6 +91,7 @@ export function createTxnRow(partial: Partial<TxnRow> & Pick<TxnRow, "datetime" 
   return {
     rowId: partial.rowId ?? crypto.randomUUID().slice(0, 10),
     datetime: partial.datetime,
+    originalDatetime: partial.originalDatetime ?? partial.datetime,
     amount: partial.amount,
     txnId: partial.txnId ?? "",
     imageName: partial.imageName ?? "",

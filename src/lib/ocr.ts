@@ -1,4 +1,5 @@
 import Tesseract from "tesseract.js";
+import { applySaleTimeOffsets } from "./aronium";
 import { assignAmounts, collectAmounts, finalizeRows, mergeTxnRows, rowsFromItems } from "./parse";
 import type { OcrItem, TxnRow } from "../types";
 
@@ -83,7 +84,7 @@ export async function extractTransactions(file: File, year: number): Promise<Txn
   assignAmounts(parsed, amounts);
   const finalized = finalizeRows(parsed, file.name);
   lastDeclinedCount = finalized.declined;
-  return finalized.rows;
+  return applySaleTimeOffsets(finalized.rows);
 }
 
 export async function extractMany(files: File[], year: number): Promise<TxnRow[]> {
