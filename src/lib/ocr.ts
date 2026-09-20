@@ -75,7 +75,6 @@ export async function extractTransactions(file: File, year: number): Promise<Txn
     const column = await recognize(cropCanvas(image, 0.68));
     const columnAmounts = collectAmounts(column);
     if (columnAmounts.length) amounts = columnAmounts;
-    parsed.push(...rowsFromItems(column, year));
   } catch {
     /* amount column optional */
   }

@@ -5,7 +5,7 @@ const IGNORE_RE =
 const HEADER_ONLY_RE =
   /^(transactions?\s*history|print\s*transaction\s*summary|back)$/i;
 const DATE_RE =
-  /(?<day>\d{1,2})\s*(?<month>jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|sop|5ep|s0p|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*(?<time>\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)/gi;
+  /(?<!\d)(?<day>\d{1,2})\s*(?<month>jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|sop|5ep|s0p|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*(?<time>\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)/gi;
 const TXN_RE = /(\d{10,})/;
 const AMOUNT_RE = /(\d{1,5}[.,]\d{2})/g;
 
@@ -113,6 +113,14 @@ export function parseLine(text: string, year: number): TxnRow | null {
   return createTxnRow({ datetime: parsed.iso, amount: Math.round(amount * 100) / 100, txnId, status: "ok" });
 }
 
+function prefixForDate(text: string, dateIndex: number): string {
+  const lookback = text.slice(Math.max(0, dateIndex - 48), dateIndex);
+  const prior = [...lookback.matchAll(new RegExp(DATE_RE.source, "gi"))];
+  const last = prior[prior.length - 1];
+  const afterPrior = last && last.index != null ? lookback.slice(last.index + last[0].length) : lookback;
+  return afterPrior.replace(/[\d.,]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
 export function extractFromBlob(blob: string, year: number): TxnRow[] {
   const cleaned = blob.replace(IGNORE_RE, " ").replace(/\s+/g, " ");
   const matches = [...cleaned.matchAll(new RegExp(DATE_RE.source, "gi"))];
@@ -120,8 +128,7 @@ export function extractFromBlob(blob: string, year: number): TxnRow[] {
   matches.forEach((match, index) => {
     const end = index + 1 < matches.length ? matches[index + 1].index ?? cleaned.length : cleaned.length;
     const start = match.index ?? 0;
-    const lookback = cleaned.slice(Math.max(0, start - 48), start);
-    const row = parseLine(lookback + cleaned.slice(start, end), year);
+    const row = parseLine(prefixForDate(cleaned, start) + cleaned.slice(start, end), year);
     if (row) rows.push(row);
   });
   return rows;
@@ -194,17 +201,39 @@ export function assignAmounts(rows: TxnRow[], amounts: number[]): void {
   }
 }
 
+function clockKey(row: TxnRow): string {
+  if (row.txnId) return `id|${row.txnId}`;
+  return `t|${row.datetime.slice(5, 7)}|${row.datetime.slice(11, 19)}`;
+}
+
+function dayOf(row: TxnRow): number {
+  return Number(row.datetime.slice(8, 10));
+}
+
+function keepBetter(prev: TxnRow, next: TxnRow): TxnRow {
+  if (dayOf(next) > dayOf(prev)) {
+    if (next.amount <= 0 && prev.amount > 0) next.amount = prev.amount;
+    if (!next.txnId && prev.txnId) next.txnId = prev.txnId;
+    return next;
+  }
+  if (next.amount > 0 && prev.amount <= 0) prev.amount = next.amount;
+  if (next.txnId && !prev.txnId) prev.txnId = next.txnId;
+  if (prev.amount > 0) prev.status = "ok";
+  return prev;
+}
+
 export function mergeTxnRows(rows: TxnRow[]): TxnRow[] {
-  const byDt = new Map<string, TxnRow>();
+  const byKey = new Map<string, TxnRow>();
   const extras: TxnRow[] = [];
   for (const row of rows) {
     if (row.status === "declined") {
       extras.push(row);
       continue;
     }
-    const prev = byDt.get(row.datetime);
+    const key = clockKey(row);
+    const prev = byKey.get(key);
     if (!prev) {
-      byDt.set(row.datetime, row);
+      byKey.set(key, row);
       continue;
     }
     const differentTx = Boolean(prev.txnId && row.txnId && prev.txnId !== row.txnId);
@@ -212,14 +241,9 @@ export function mergeTxnRows(rows: TxnRow[]): TxnRow[] {
       extras.push(row);
       continue;
     }
-    if (row.amount > 0 && prev.amount <= 0) {
-      prev.amount = row.amount;
-      prev.status = "ok";
-    }
-    if (row.txnId && !prev.txnId) prev.txnId = row.txnId;
-    if (prev.amount > 0) prev.status = "ok";
+    byKey.set(key, keepBetter(prev, row));
   }
-  return [...byDt.values(), ...extras];
+  return [...byKey.values(), ...extras];
 }
 
 export function finalizeRows(rows: TxnRow[], imageName: string): { rows: TxnRow[]; declined: number } {
