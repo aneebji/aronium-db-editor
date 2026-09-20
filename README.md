@@ -19,7 +19,7 @@ A focused workspace for reading card-terminal transaction history and writing ma
 | --- | --- |
 | **Extract** | Reads DateTime and amount from terminal history screenshots with Tesseract.js plus a dedicated date/amount parser. |
 | **Match** | Picks one enabled product: exact price first, otherwise a nearby random price. Sale total stays the card amount. |
-| **Enter sale** | Writes Aronium-compatible rows (`Document`, `DocumentItem`, `DocumentItemTax`, `Payment`, `Stock`, `Counter`). Schema is not changed. Each sale DateTime is written with a random extra 7 to 15 seconds. |
+| **Enter sale** | Writes Aronium-compatible rows (`Document`, `DocumentItem`, `DocumentItemTax`, `Payment`, `Stock`, `Counter`). Schema is not changed. Each sale DateTime is written with a random extra 7 to 20 seconds. |
 | **Duplicates** | The same original OCR second is marked **Already added**. A one-second difference on the slip is a new sale. |
 | **Ledger** | After you attach `pos.db`, Dashboard, Sales, and Products load the live catalog and existing sales. OCR inserts show a batch number in the Source column; other tickets are marked Original. |
 
@@ -31,7 +31,7 @@ A focused workspace for reading card-terminal transaction history and writing ma
 4. **Match** — Fill product code and name. **Rematch random** draws another eligible product.
 5. **Enter Sale** — The original and updated databases download together as a zip. Chrome or Edge can also overwrite `pos.db` in place.
 
-Close Aronium before writing. VAT is treated as 15% inclusive. Payment type is Debit Card. Sale numbers use `{yy}-200-{seq}`.
+Close Aronium before writing. VAT is treated as 15% inclusive. Payment is Debit Card unless you set a row to Cash. Sale numbers use `{yy}-200-{seq}`.
 
 ## Privacy
 

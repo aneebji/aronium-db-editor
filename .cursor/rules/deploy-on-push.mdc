@@ -1,0 +1,21 @@
+---
+description: Rebuild GitHub Pages docs/ and include it whenever code is pushed
+alwaysApply: true
+---
+
+# Deploy with every push
+
+When the user asks to push to GitHub, also publish the live app. Do not push source-only and leave Pages on an old build.
+
+## Required sequence
+
+1. Run `npm run build:pages` (writes `docs/` with base `/aronium-db-editor/`).
+2. Stage the app changes **and** the generated `docs/` output.
+3. Commit, then `git push`.
+4. The live URL is https://aneebji.github.io/aronium-db-editor/
+
+## Do not
+
+- Skip `docs/` because an earlier plan said "rebuild only if asked". This rule overrides that.
+- Commit `pos.db`, `.venv`, `testdata/`, or real terminal slips.
+- Force-push `main`.
