@@ -1,4 +1,4 @@
-import { addSeconds, formatDateTime, insertRows, loadProducts, randomSaleOffsetSeconds } from "../lib/aronium";
+import { addSeconds, formatDateTime, insertRows, loadProducts, loadSales, randomSaleOffsetSeconds } from "../lib/aronium";
 import { connectedName, getDatabase, persistAndDownloadPair, snapshotBytes } from "../lib/db-file";
 import { peekNextBatchId, saveBatch } from "../lib/history";
 import { createExtraCashSales, extractDatetimes, matchRows } from "../lib/matcher";
@@ -237,6 +237,16 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
     return allowedProducts(loadProducts(db), activeBranch().id);
   };
 
+  const reservedProducts = () => {
+    const db = getDatabase();
+    if (!db) return [];
+    return loadSales(db).map((sale) => ({
+      datetime: sale.datetime,
+      productId: sale.productId,
+      productCode: sale.productCode,
+    }));
+  };
+
   const setBusy = (busy: boolean, text = "") => {
     state.busy = busy;
     next.disabled = busy;
@@ -268,7 +278,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
   root.querySelector("#edit")?.addEventListener("click", editSelected);
   rematch.addEventListener("click", () => {
     if (state.step !== 3 || state.saleDone) return;
-    matchRows(state.rows, products());
+    matchRows(state.rows, products(), reservedProducts());
     refreshTable();
     status.textContent = "Products rematched at random.";
   });
@@ -313,6 +323,14 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         count,
         products(),
         state.rows.map((row) => row.datetime),
+        [
+          ...reservedProducts(),
+          ...state.rows.map((row) => ({
+            datetime: row.datetime,
+            productId: row.productId,
+            productCode: row.productCode,
+          })),
+        ],
       );
       if (!extras.length) {
         alert("No products available to add extra sales.");
@@ -386,7 +404,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         alert("Attach pos.db in Settings before matching products.");
         return;
       }
-      matchRows(state.rows, products());
+      matchRows(state.rows, products(), reservedProducts());
       showStep(3);
       status.textContent = `Matched ${state.rows.filter((row) => row.productId).length} products`;
       return;

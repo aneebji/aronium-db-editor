@@ -180,6 +180,21 @@ function paymentTypeId(db: Database, method: "debit" | "cash" = "debit"): number
   return Number(scalar(db, "SELECT Id FROM PaymentType ORDER BY Id LIMIT 1") ?? DEBIT_CARD_TYPE_ID);
 }
 
+function productSoldOnDate(db: Database, productId: number, datetime: string): boolean {
+  const day = formatDateTime(datetime).slice(0, 10);
+  const found = scalar(
+    db,
+    `SELECT d.Number FROM Document d
+     JOIN DocumentItem di ON di.DocumentId = d.Id
+     WHERE d.DocumentTypeId = ?
+       AND di.ProductId = ?
+       AND (substr(d.DateCreated, 1, 10) = ? OR substr(d.Date, 1, 10) = ?)
+     LIMIT 1`,
+    [SALES_TYPE_ID, productId, day, day],
+  );
+  return found != null;
+}
+
 function existingSaleNumber(db: Database, originalDatetime: string): string {
   const second = formatDateTime(originalDatetime);
   const number = scalar<string>(
@@ -242,6 +257,11 @@ export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow 
   let dt = formatDateTime(row.datetime);
   if (dt === originalDt) {
     dt = addSeconds(originalDt, randomSaleOffsetSeconds());
+  }
+  if (productSoldOnDate(db, row.productId, dt) || productSoldOnDate(db, row.productId, originalDt)) {
+    row.result = "failed";
+    row.error = "Product already used this date";
+    return row;
   }
   const dateOnly = `${dt.split(" ")[0]} 00:00:00`;
   const year = Number(dt.slice(2, 4));

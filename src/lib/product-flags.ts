@@ -9,6 +9,7 @@ interface FlaggedProduct {
 }
 
 const EXEMPT_SHOP_123: FlaggedProduct[] = [
+  { code: "46", name: "اسم قزاز طيران" },
   { code: "47", name: "اسم طيران تطريز" },
   { code: "48", name: "اسم طيران طباعة" },
   { code: "49", name: "اسم طيران ليزر" },
