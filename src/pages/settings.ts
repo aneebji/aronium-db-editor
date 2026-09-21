@@ -7,6 +7,7 @@ import {
   hasFileAccess,
   loadFromFileFor,
   pickDatabaseFor,
+  resetAttachedShops,
 } from "../lib/db-file";
 import {
   applyTheme,
@@ -80,6 +81,7 @@ export function renderSettings(root: HTMLElement, onAttached: () => void): void 
     </div>
     <div class="toolbar">
       <button class="btn" id="save">Save settings</button>
+      <button class="btn ghost" id="reset" type="button">Reset</button>
     </div>
   `;
 
@@ -197,6 +199,20 @@ export function renderSettings(root: HTMLElement, onAttached: () => void): void 
     });
     refreshActiveOptions();
     alert("Settings saved on this device.");
+  });
+
+  root.querySelector("#reset")?.addEventListener("click", async () => {
+    if (
+      !confirm(
+        "Reset all shop names and attached databases on this device? The files on disk are not deleted.",
+      )
+    ) {
+      return;
+    }
+    await resetAttachedShops();
+    onAttached();
+    renderSettings(root, onAttached);
+    alert("Shops and attached databases were reset.");
   });
 
   paintExempt();

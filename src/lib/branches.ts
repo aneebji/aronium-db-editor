@@ -63,3 +63,17 @@ export async function deleteBranchHandle(id: BranchId): Promise<void> {
 export async function hasBranchHandle(id: BranchId): Promise<boolean> {
   return (await loadBranchHandle(id)) != null;
 }
+
+export async function clearAllBranchHandles(): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("Could not clear file handles"));
+    });
+  } finally {
+    db.close();
+  }
+}

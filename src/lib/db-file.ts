@@ -1,8 +1,8 @@
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import { loadCatalog, loadSales } from "./aronium";
-import { deleteBranchHandle, loadBranchHandle, saveBranchHandle } from "./branches";
-import { activeBranch, loadSettings, patchBranch, saveSettings, type BranchId } from "./settings";
+import { clearAllBranchHandles, deleteBranchHandle, loadBranchHandle, saveBranchHandle } from "./branches";
+import { activeBranch, defaultBranches, loadSettings, patchBranch, saveSettings, type BranchId } from "./settings";
 import { zipStore } from "./zip";
 
 let sqlPromise: Promise<SqlJsStatic> | null = null;
@@ -199,4 +199,14 @@ export async function persistAndDownloadPair(original: Uint8Array): Promise<{
   const zipName = downloadOriginalAndUpdatedZip(original, updated);
   snapshotActiveBranchStats();
   return { zipName, wroteInPlace };
+}
+
+export async function resetAttachedShops(): Promise<void> {
+  closeCurrent();
+  await clearAllBranchHandles();
+  saveSettings({
+    activeBranchId: "shop-1",
+    dbName: "",
+    branches: defaultBranches(),
+  });
 }
