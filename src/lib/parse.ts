@@ -312,3 +312,30 @@ export function finalizeRows(rows: TxnRow[], imageName: string): { rows: TxnRow[
   }
   return { rows: out.sort((a, b) => b.datetime.localeCompare(a.datetime)), declined };
 }
+
+const DUP_WINDOW_SECONDS = 3;
+
+function rowClock(row: TxnRow): string {
+  return (row.originalDatetime || row.datetime).replace("T", " ").slice(0, 19);
+}
+
+function secondsApart(left: string, right: string): number {
+  return Math.abs(Date.parse(left.replace(" ", "T")) - Date.parse(right.replace(" ", "T"))) / 1000;
+}
+
+export function dedupeByDatetimeAmount(rows: TxnRow[]): TxnRow[] {
+  const kept: TxnRow[] = [];
+  for (const row of rows) {
+    if (row.origin === "extra") {
+      kept.push(row);
+      continue;
+    }
+    const clock = rowClock(row);
+    const duplicate = kept.some((prev) => {
+      if (prev.origin === "extra") return false;
+      return Math.abs(prev.amount - row.amount) < 0.005 && secondsApart(rowClock(prev), clock) <= DUP_WINDOW_SECONDS;
+    });
+    if (!duplicate) kept.push(row);
+  }
+  return kept;
+}

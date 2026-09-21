@@ -1,6 +1,6 @@
 import Tesseract from "tesseract.js";
 import { applySaleTimeOffsets } from "./aronium";
-import { assignAmounts, collectAmounts, finalizeRows, mergeTxnRows, rowsFromItems } from "./parse";
+import { assignAmounts, collectAmounts, dedupeByDatetimeAmount, finalizeRows, mergeTxnRows, rowsFromItems } from "./parse";
 import type { OcrItem, TxnRow } from "../types";
 
 let lastOcrText = "";
@@ -84,7 +84,7 @@ export async function extractTransactions(file: File, year: number): Promise<Txn
   assignAmounts(parsed, amounts);
   const finalized = finalizeRows(parsed, file.name);
   lastDeclinedCount = finalized.declined;
-  return applySaleTimeOffsets(finalized.rows);
+  return finalized.rows;
 }
 
 export async function extractMany(files: File[], year: number): Promise<TxnRow[]> {
@@ -95,7 +95,8 @@ export async function extractMany(files: File[], year: number): Promise<TxnRow[]
     declined += lastDeclinedCount;
   }
   lastDeclinedCount = declined;
-  return rows.sort((a, b) => b.datetime.localeCompare(a.datetime));
+  const unique = dedupeByDatetimeAmount(rows);
+  return applySaleTimeOffsets(unique).sort((a, b) => b.datetime.localeCompare(a.datetime));
 }
 
 export function getLastOcrText(): string {

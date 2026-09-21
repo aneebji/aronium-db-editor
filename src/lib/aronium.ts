@@ -357,7 +357,13 @@ export function insertSale(db: Database, row: TxnRow, batchId?: number): TxnRow 
 }
 
 export function insertRows(db: Database, rows: TxnRow[], batchId?: number): TxnRow[] {
-  for (const row of rows) {
+  const queue = [...rows].sort((left, right) => {
+    const a = formatDateTime(left.datetime);
+    const b = formatDateTime(right.datetime);
+    if (a !== b) return a.localeCompare(b);
+    return formatDateTime(left.originalDatetime || a).localeCompare(formatDateTime(right.originalDatetime || b));
+  });
+  for (const row of queue) {
     if (row.skipped) {
       row.result = "skipped";
       continue;
