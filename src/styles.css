@@ -405,11 +405,24 @@ td {
   white-space: nowrap;
 }
 
-td:nth-child(4),
-td:nth-child(5) {
+td:nth-child(5),
+td:nth-child(6) {
   white-space: normal;
   min-width: 8rem;
   max-width: 22rem;
+}
+
+td:first-child {
+  width: 3.2rem;
+  text-align: center;
+}
+
+.skip-row {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 td {

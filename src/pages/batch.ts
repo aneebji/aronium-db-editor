@@ -76,7 +76,6 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
     <div id="table-page" class="hidden">
       <div class="toolbar">
         <button class="btn ghost" id="edit">Edit selected</button>
-        <button class="btn ghost" id="skip">Skip / unskip</button>
         <button class="btn" id="rematch">Rematch random</button>
         <button class="btn ghost" id="extra">Add extra</button>
         <span class="muted grow" id="summary"></span>
@@ -84,7 +83,7 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>DateTime</th><th>Price</th><th>Payment</th><th>Product code</th><th>Name</th><th>Status</th></tr>
+            <tr><th>Skip</th><th>DateTime</th><th>Price</th><th>Payment</th><th>Product code</th><th>Name</th><th>Status</th></tr>
           </thead>
           <tbody id="rows"></tbody>
         </table>
@@ -120,6 +119,9 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
       .map((row) => {
         const statusText = displayStatus(row);
         return `<tr data-id="${row.rowId}" class="${state.selected === row.rowId ? "selected" : ""}">
+          <td>
+            <input type="checkbox" class="skip-row" data-id="${row.rowId}" aria-label="Skip sale" ${row.skipped ? "checked" : ""} ${state.saleDone ? "disabled" : ""} />
+          </td>
           <td>${escapeHtml(row.datetime)}</td>
           <td>${row.amount.toFixed(2)}</td>
           <td>
@@ -157,6 +159,17 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         event.stopPropagation();
         const row = state.rows.find((item) => item.rowId === select.dataset.id);
         if (row) row.paymentMethod = select.value === "cash" ? "cash" : "debit";
+      });
+    });
+    body.querySelectorAll<HTMLInputElement>("input.skip-row").forEach((box) => {
+      box.addEventListener("click", (event) => event.stopPropagation());
+      box.addEventListener("change", (event) => {
+        event.stopPropagation();
+        const row = state.rows.find((item) => item.rowId === box.dataset.id);
+        if (!row || state.saleDone) return;
+        row.skipped = box.checked;
+        if (row.skipped) row.result = "";
+        refreshTable();
       });
     });
   };
@@ -267,13 +280,6 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
   drop.addEventListener("drop", (event) => {
     event.preventDefault();
     addFiles([...(event as DragEvent).dataTransfer?.files ?? []]);
-  });
-  root.querySelector("#skip")?.addEventListener("click", () => {
-    const row = selectedRow();
-    if (!row || state.saleDone) return;
-    row.skipped = !row.skipped;
-    if (row.skipped) row.result = "";
-    refreshTable();
   });
   root.querySelector("#edit")?.addEventListener("click", editSelected);
   rematch.addEventListener("click", () => {
