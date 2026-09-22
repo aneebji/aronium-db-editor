@@ -9,6 +9,7 @@ testdata/
 release/
 .DS_Store
 *.log
+*.traineddata
 .cursor/
 .agents/
 skills-lock.json

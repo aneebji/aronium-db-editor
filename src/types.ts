@@ -46,6 +46,7 @@ export interface TxnRow {
   error: string;
   paymentMethod: PaymentMethod;
   origin: RowOrigin;
+  ocrY?: number;
 }
 
 export interface OcrItem {
@@ -110,6 +111,7 @@ export function createTxnRow(partial: Partial<TxnRow> & Pick<TxnRow, "datetime" 
     error: partial.error ?? "",
     paymentMethod: partial.paymentMethod === "cash" ? "cash" : "debit",
     origin: partial.origin === "extra" ? "extra" : "extract",
+    ocrY: partial.ocrY,
   };
 }
 

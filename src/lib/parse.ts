@@ -6,8 +6,9 @@ const HEADER_ONLY_RE =
   /^(transactions?\s*history|print\s*transaction\s*summary|back)$/i;
 const DATE_RE =
   /(?<!\d)(?<day>\d{1,2})\s*(?<month>jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|sop|5ep|s0p|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*(?<time>\d{1,2}[:.]\d{2}(?:[:.]\d{2})?)/gi;
-const TXN_RE = /(\d{10,})/;
+const TXN_RE = /(\d{12,14})/g;
 const AMOUNT_RE = /(\d{1,5}[.,]\d{2})/g;
+const CURRENCY_RE = /[﷼$€£¥]|SAR|SR|ر\.?\s*س/gi;
 
 const MONTH_LOOKUP: Record<string, number> = {
   january: 1,
@@ -43,13 +44,32 @@ function monthNumber(token: string): number | undefined {
   return MONTH_LOOKUP[token.toLowerCase().replace(/\.$/, "")];
 }
 
-export function parseAmount(text: string, txnId = ""): number | null {
-  let cleaned = text;
+export function peelGluedAmount(datetime: string, amount: number): number {
+  const seconds = datetime.replace("T", " ").slice(17, 19);
+  if (!/^\d{2}$/.test(seconds) || amount < 100) return amount;
+  const text = amount.toFixed(2);
+  if (text[0] !== seconds[0]) return amount;
+  const peeled = Number(text.slice(1));
+  if (!(peeled > 0) || peeled >= 100) return amount;
+  return Math.round(peeled * 100) / 100;
+}
+
+function parseTxnId(text: string): string {
+  const matches = [...text.matchAll(TXN_RE)].map((match) => match[1]);
+  if (!matches.length) return "";
+  return matches.sort((left, right) => right.length - left.length)[0];
+}
+
+export function parseAmount(text: string, txnId = "", datetime = ""): number | null {
+  let cleaned = text.replace(CURRENCY_RE, " ");
   if (txnId) cleaned = cleaned.replaceAll(txnId, " ");
+  cleaned = cleaned.replace(/\d{1,2}:\d{2}(?::\d{2})?/g, " ");
   const matches = [...cleaned.matchAll(AMOUNT_RE)].map((match) => match[1]);
   if (!matches.length) return null;
-  const value = Number(matches[matches.length - 1].replace(",", "."));
-  return value > 0 && value < 100000 ? value : null;
+  let value = Number(matches[matches.length - 1].replace(",", "."));
+  if (!(value > 0 && value < 100000)) return null;
+  if (datetime) value = peelGluedAmount(datetime, value);
+  return value;
 }
 
 const DECLINED_LETTERS = new Set(["DEC", "DECL", "DECLIN", "DECLINE", "DECLINED", "DEO", "DFC", "DLC", "OEC", "PEC", "BEC"]);
@@ -110,9 +130,8 @@ export function parseLine(text: string, year: number): TxnRow | null {
   const parsed = parseDatetime(compact, year);
   if (!parsed) return null;
   const rest = compact.slice(parsed.end);
-  const txnMatch = TXN_RE.exec(rest) || TXN_RE.exec(compact);
-  const txnId = txnMatch?.[1] ?? "";
-  const amount = parseAmount(rest, txnId) ?? parseAmount(compact, txnId);
+  const txnId = parseTxnId(rest) || parseTxnId(compact);
+  const amount = parseAmount(rest, txnId, parsed.iso) ?? parseAmount(compact, txnId, parsed.iso);
   if (isDeclinedTxn(compact)) {
     return createTxnRow({
       datetime: parsed.iso,
@@ -154,7 +173,7 @@ export function extractFromBlob(blob: string, year: number): TxnRow[] {
   return rows;
 }
 
-export function groupLines(items: OcrItem[], yTol = 22): Array<{ y: number; line: string }> {
+export function groupLines(items: OcrItem[], yTol = 16): Array<{ y: number; line: string }> {
   const prepared = items
     .filter((item) => item.text.trim())
     .map((item) => ({ y: item.y, x: item.x, text: item.text.trim() }))
@@ -174,7 +193,7 @@ export function groupLines(items: OcrItem[], yTol = 22): Array<{ y: number; line
   }));
 }
 
-export function collectAmounts(items: OcrItem[]): number[] {
+export function collectAmountPoints(items: OcrItem[]): Array<{ y: number; amount: number }> {
   const values: Array<{ y: number; amount: number }> = [];
   for (const item of items) {
     const text = item.text.trim();
@@ -183,13 +202,26 @@ export function collectAmounts(items: OcrItem[]): number[] {
     if (amount == null || amount <= 0) continue;
     values.push({ y: item.y, amount });
   }
-  return values.sort((a, b) => a.y - b.y).map((item) => item.amount);
+  return values.sort((a, b) => a.y - b.y);
+}
+
+export function collectAmounts(items: OcrItem[]): number[] {
+  return collectAmountPoints(items).map((item) => item.amount);
 }
 
 function leadingType(line: string): string {
   const token = line.trim().split(/\s+/)[0] ?? "";
   if (isDeclinedToken(token) || lettersOnly(token).startsWith("APP")) return token;
   return "";
+}
+
+function secondsApart(left: string, right: string): number {
+  return Math.abs(Date.parse(left.replace(" ", "T")) - Date.parse(right.replace(" ", "T"))) / 1000;
+}
+
+function sameExtract(left: TxnRow, right: TxnRow): boolean {
+  if (left.txnId.length >= 12 && left.txnId === right.txnId) return true;
+  return secondsApart(left.datetime, right.datetime) <= 2;
 }
 
 export function rowsFromItems(items: OcrItem[], year: number): TxnRow[] {
@@ -199,43 +231,83 @@ export function rowsFromItems(items: OcrItem[], year: number): TxnRow[] {
     const line = lines[index].line;
     const prevType = index > 0 ? leadingType(lines[index - 1].line) : "";
     const prefixed = prevType && !leadingType(line) ? `${prevType} ${line}` : line;
-    rows.push(...extractFromBlob(prefixed, year));
+    for (const row of extractFromBlob(prefixed, year)) {
+      row.ocrY = lines[index].y;
+      rows.push(row);
+    }
   }
-  rows.push(...extractFromBlob(items.map((item) => item.text).join(" "), year));
+  for (const row of extractFromBlob(items.map((item) => item.text).join(" "), year)) {
+    if (!rows.some((prev) => sameExtract(prev, row))) rows.push(row);
+  }
   return rows;
 }
 
-export function assignAmounts(rows: TxnRow[], amounts: number[]): void {
-  if (!rows.length || !amounts.length) return;
-  const ordered = [...rows].filter((row) => row.status !== "declined").sort((a, b) => b.datetime.localeCompare(a.datetime));
-  if (ordered.length === amounts.length) {
+function amountPoints(amounts: number[] | Array<{ y: number; amount: number }>): Array<{ y: number; amount: number }> {
+  return amounts.map((item) => (typeof item === "number" ? { y: Number.NaN, amount: item } : item));
+}
+
+export function assignAmounts(rows: TxnRow[], amounts: number[] | Array<{ y: number; amount: number }>): void {
+  const points = amountPoints(amounts);
+  if (!rows.length || !points.length) return;
+  const live = rows.filter((row) => row.status !== "declined");
+  const used = points.map(() => false);
+  const canPair = live.some((row) => row.ocrY != null) && points.some((point) => Number.isFinite(point.y));
+
+  if (canPair) {
+    for (const row of [...live].sort((left, right) => (left.ocrY ?? 0) - (right.ocrY ?? 0))) {
+      let best = -1;
+      let bestDist = 20;
+      points.forEach((point, index) => {
+        if (used[index] || !Number.isFinite(point.y)) return;
+        const dist = Math.abs((row.ocrY ?? 0) - point.y);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = index;
+        }
+      });
+      if (best < 0) continue;
+      const paired = points[best].amount;
+      if (row.amount <= 0 || peelGluedAmount(row.datetime, row.amount) === paired) {
+        row.amount = paired;
+        row.status = "ok";
+      }
+      used[best] = true;
+    }
+  }
+
+  const ordered = [...live].sort((a, b) => b.datetime.localeCompare(a.datetime));
+  const values = points.map((point) => point.amount);
+  if (ordered.length === values.length) {
     ordered.forEach((row, index) => {
       if (row.amount <= 0) {
-        row.amount = amounts[index];
+        row.amount = values[index];
         row.status = "ok";
       }
     });
-    return;
+  } else {
+    for (const row of ordered) {
+      if (row.amount > 0) {
+        const hit = values.findIndex((amount, index) => !used[index] && Math.abs(amount - row.amount) < 0.001);
+        if (hit >= 0) used[hit] = true;
+        continue;
+      }
+      const next = used.findIndex((flag) => !flag);
+      if (next >= 0) {
+        row.amount = values[next];
+        row.status = "ok";
+        used[next] = true;
+      }
+    }
   }
-  const used = amounts.map(() => false);
-  for (const row of ordered) {
-    if (row.amount > 0) {
-      const hit = amounts.findIndex((amount, index) => !used[index] && Math.abs(amount - row.amount) < 0.001);
-      if (hit >= 0) used[hit] = true;
-      continue;
-    }
-    const next = used.findIndex((flag) => !flag);
-    if (next >= 0) {
-      row.amount = amounts[next];
-      row.status = "ok";
-      used[next] = true;
-    }
+
+  for (const row of live) {
+    if (row.amount > 0) row.amount = peelGluedAmount(row.datetime, row.amount);
   }
 }
 
 function clockKey(row: TxnRow): string {
-  if (row.txnId) return `id|${row.txnId}`;
-  return `t|${row.datetime.slice(5, 7)}|${row.datetime.slice(11, 19)}`;
+  if (row.txnId.length >= 12) return `id|${row.txnId}`;
+  return `t|${row.datetime.replace("T", " ").slice(0, 19)}`;
 }
 
 function dayOf(row: TxnRow): number {
@@ -255,8 +327,8 @@ function keepBetter(prev: TxnRow, next: TxnRow): TxnRow {
 }
 
 function allKeys(row: TxnRow): string[] {
-  const keys = [clockKey(row)];
-  if (row.txnId) keys.push(`t|${row.datetime.slice(5, 7)}|${row.datetime.slice(11, 19)}`);
+  const keys = [`t|${row.datetime.replace("T", " ").slice(0, 19)}`];
+  if (row.txnId.length >= 12) keys.push(`id|${row.txnId}`);
   return keys;
 }
 
@@ -281,7 +353,12 @@ export function mergeTxnRows(rows: TxnRow[]): TxnRow[] {
       continue;
     }
     const differentTx = Boolean(prev.txnId && row.txnId && prev.txnId !== row.txnId);
-    if (differentTx && prev.amount > 0 && row.amount > 0 && prev.amount !== row.amount) {
+    const differentSale =
+      prev.amount > 0 &&
+      row.amount > 0 &&
+      Math.abs(prev.amount - row.amount) > 0.005 &&
+      secondsApart(prev.datetime, row.datetime) > 2;
+    if ((differentTx || differentSale) && prev.amount > 0 && row.amount > 0) {
       extras.push(row);
       continue;
     }
@@ -317,10 +394,6 @@ const DUP_WINDOW_SECONDS = 3;
 
 function rowClock(row: TxnRow): string {
   return (row.originalDatetime || row.datetime).replace("T", " ").slice(0, 19);
-}
-
-function secondsApart(left: string, right: string): number {
-  return Math.abs(Date.parse(left.replace(" ", "T")) - Date.parse(right.replace(" ", "T"))) / 1000;
 }
 
 export function dedupeByDatetimeAmount(rows: TxnRow[]): TxnRow[] {
