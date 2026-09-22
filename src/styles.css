@@ -417,6 +417,20 @@ td:first-child {
   text-align: center;
 }
 
+.date-report {
+  margin-top: 12px;
+}
+
+.date-report td:first-child {
+  width: auto;
+  text-align: left;
+}
+
+.date-report tfoot td {
+  border-bottom: none;
+  font-weight: 600;
+}
+
 .skip-row {
   width: 16px;
   height: 16px;

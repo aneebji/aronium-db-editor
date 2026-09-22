@@ -1,12 +1,42 @@
 import Tesseract from "tesseract.js";
 import { applySaleTimeOffsets } from "./aronium";
-import { assignAmounts, collectAmountPoints, dedupeByDatetimeAmount, finalizeRows, mergeTxnRows, rowsFromItems } from "./parse";
+import {
+  cropBand,
+  cropRight,
+  invertIfDark,
+  prepareSlipImage,
+  type CardBand,
+} from "./ocr-preprocess";
+import {
+  assignAmounts,
+  collectAmountPoints,
+  dedupeByDatetimeAmount,
+  finalizeRows,
+  mergeTxnRows,
+  rowsFromItems,
+  rowsFromLineText,
+} from "./parse";
 import type { OcrItem, TxnRow } from "../types";
 
 let lastOcrText = "";
 let lastDeclinedCount = 0;
+let workerPromise: Promise<Tesseract.Worker> | null = null;
 
-function pageToItems(page: Tesseract.Page): OcrItem[] {
+const TOKEN_KEEP = /\d{1,2}[:.]\d{2}|\d+[.,]\d{2}/;
+
+async function getWorker(): Promise<Tesseract.Worker> {
+  if (!workerPromise) workerPromise = Tesseract.createWorker("eng", 1);
+  return workerPromise;
+}
+
+export async function releaseOcrWorker(): Promise<void> {
+  if (!workerPromise) return;
+  const worker = await workerPromise;
+  workerPromise = null;
+  await worker.terminate();
+}
+
+function pageToItems(page: Tesseract.Page, offsetX = 0, offsetY = 0): OcrItem[] {
   const items: OcrItem[] = [];
   for (const block of page.blocks ?? []) {
     for (const paragraph of block.paragraphs ?? []) {
@@ -14,10 +44,13 @@ function pageToItems(page: Tesseract.Page): OcrItem[] {
         for (const word of line.words ?? []) {
           const text = word.text.trim();
           if (!text) continue;
+          const confidence = word.confidence ?? 0;
+          if (confidence < 40 && !TOKEN_KEEP.test(text)) continue;
           items.push({
-            x: (word.bbox.x0 + word.bbox.x1) / 2,
-            y: (word.bbox.y0 + word.bbox.y1) / 2,
+            x: (word.bbox.x0 + word.bbox.x1) / 2 + offsetX,
+            y: (word.bbox.y0 + word.bbox.y1) / 2 + offsetY,
             text,
+            confidence,
           });
         }
       }
@@ -25,65 +58,31 @@ function pageToItems(page: Tesseract.Page): OcrItem[] {
   }
   if (!items.length && page.text) {
     page.text.split(/\n/).forEach((line, index) => {
-      if (line.trim()) items.push({ x: 0, y: index * 24, text: line.trim() });
+      if (line.trim()) items.push({ x: offsetX, y: offsetY + index * 24, text: line.trim() });
     });
   }
   return items;
 }
 
+type RecognizeMode = "full" | "line" | "amounts";
+
 async function recognize(
   source: HTMLCanvasElement | File | Blob,
-  mode: "full" | "amounts" = "full",
-): Promise<OcrItem[]> {
-  const worker = await Tesseract.createWorker("eng", 1);
-  try {
-    await worker.setParameters({
-      tessedit_pageseg_mode: (mode === "amounts" ? "4" : "6") as Tesseract.PSM,
-      preserve_interword_spaces: "1",
-      user_defined_dpi: "220",
-      ...(mode === "amounts" ? { tessedit_char_whitelist: "0123456789.," } : {}),
-    });
-    const result = await worker.recognize(source);
-    if (mode === "full") lastOcrText = result.data.text || "";
-    return pageToItems(result.data);
-  } finally {
-    await worker.terminate();
-  }
-}
-
-function enhanceForOcr(image: HTMLCanvasElement): HTMLCanvasElement {
-  const scale = image.width < 1400 ? 2.4 : image.width < 2000 ? 1.8 : 1.35;
-  const out = document.createElement("canvas");
-  out.width = Math.max(1, Math.round(image.width * scale));
-  out.height = Math.max(1, Math.round(image.height * scale));
-  const ctx = out.getContext("2d");
-  if (!ctx) return image;
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.filter = "grayscale(1) contrast(1.35) brightness(1.05)";
-  ctx.drawImage(image, 0, 0, out.width, out.height);
-  ctx.filter = "none";
-  const pixels = ctx.getImageData(0, 0, out.width, out.height);
-  const data = pixels.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const value = data[i];
-    const next = value > 188 ? 255 : value < 96 ? 0 : value;
-    data[i] = data[i + 1] = data[i + 2] = next;
-  }
-  ctx.putImageData(pixels, 0, 0);
-  return out;
-}
-
-function cropCanvas(image: HTMLCanvasElement | HTMLImageElement, leftFrac: number): HTMLCanvasElement {
-  const width = image.width;
-  const height = image.height;
-  const sx = Math.floor(width * leftFrac);
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, width - sx);
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (ctx) ctx.drawImage(image, sx, 0, canvas.width, height, 0, 0, canvas.width, height);
-  return canvas;
+  mode: RecognizeMode,
+  offsetX = 0,
+  offsetY = 0,
+): Promise<{ items: OcrItem[]; text: string }> {
+  const worker = await getWorker();
+  const psm = mode === "line" ? "7" : mode === "amounts" ? "4" : "6";
+  await worker.setParameters({
+    tessedit_pageseg_mode: psm as Tesseract.PSM,
+    preserve_interword_spaces: "1",
+    user_defined_dpi: "220",
+    ...(mode === "amounts" ? { tessedit_char_whitelist: "0123456789.," } : { tessedit_char_whitelist: "" }),
+  });
+  const result = await worker.recognize(source);
+  const text = result.data.text || "";
+  return { items: pageToItems(result.data, offsetX, offsetY), text };
 }
 
 async function loadImage(file: File): Promise<HTMLCanvasElement> {
@@ -97,23 +96,75 @@ async function loadImage(file: File): Promise<HTMLCanvasElement> {
   return canvas;
 }
 
-export async function extractTransactions(file: File, year: number): Promise<TxnRow[]> {
-  const image = enhanceForOcr(await loadImage(file));
-  const fullItems = await recognize(image, "full");
-  const sources = [fullItems];
-
-  let parsed = sources.flatMap((items) => rowsFromItems(items, year));
-  let amounts = sources.flatMap((items) => collectAmountPoints(items));
-  try {
-    let columnAmounts = collectAmountPoints(await recognize(cropCanvas(image, 0.72), "amounts"));
-    if (columnAmounts.length < 2) {
-      columnAmounts = collectAmountPoints(await recognize(cropCanvas(image, 0.64), "amounts"));
+async function readCard(
+  page: HTMLCanvasElement,
+  card: CardBand,
+  year: number,
+): Promise<{ rows: TxnRow[]; amounts: Array<{ y: number; amount: number }>; text: string }> {
+  const midY = card.y + card.height / 2;
+  const line = invertIfDark(cropBand(page, card));
+  const { items, text } = await recognize(line, "line", card.x, card.y);
+  const rows = rowsFromLineText(text, year, midY);
+  if (!rows.length) {
+    for (const row of rowsFromItems(items, year)) {
+      row.ocrY = midY;
+      rows.push(row);
     }
-    if (columnAmounts.length) amounts = columnAmounts;
+  } else {
+    for (const row of rows) row.ocrY = midY;
+  }
+  let amounts = collectAmountPoints(items.filter((item) => item.x >= card.x + card.width * 0.62));
+  try {
+    const strip = invertIfDark(cropRight(line, 0.78));
+    const column = await recognize(strip, "amounts", card.x + Math.floor(card.width * 0.78), card.y);
+    const points = collectAmountPoints(column.items).map((point) => ({ ...point, y: midY }));
+    if (points.length) amounts = points;
+  } catch {
+    /* amount strip optional */
+  }
+  return { rows, amounts, text };
+}
+
+async function readFullPage(
+  page: HTMLCanvasElement,
+  year: number,
+): Promise<{ rows: TxnRow[]; amounts: Array<{ y: number; amount: number }>; text: string }> {
+  const full = await recognize(page, "full");
+  const rows = rowsFromItems(full.items, year);
+  let amounts = collectAmountPoints(full.items);
+  try {
+    const column = await recognize(cropRight(page, 0.72), "amounts");
+    const points = collectAmountPoints(column.items);
+    if (points.length >= 2) amounts = points;
   } catch {
     /* amount column optional */
   }
+  return { rows, amounts, text: full.text };
+}
 
+export async function extractTransactions(file: File, year: number): Promise<TxnRow[]> {
+  const prepared = prepareSlipImage(await loadImage(file));
+  const texts: string[] = [];
+  let parsed: TxnRow[] = [];
+  let amounts: Array<{ y: number; amount: number }> = [];
+
+  if (prepared.cards.length >= 2) {
+    for (const card of prepared.cards) {
+      const read = await readCard(prepared.canvas, card, year);
+      parsed.push(...read.rows);
+      amounts.push(...read.amounts);
+      if (read.text.trim()) texts.push(read.text.trim());
+    }
+  }
+
+  if (parsed.length < 2) {
+    const full = await readFullPage(prepared.canvas, year);
+    parsed = full.rows;
+    if (full.amounts.length) amounts = full.amounts;
+    if (full.text.trim()) texts.push(full.text.trim());
+  }
+
+  lastOcrText = texts.join("\n");
   parsed = mergeTxnRows(parsed);
   assignAmounts(parsed, amounts);
   const finalized = finalizeRows(parsed, file.name);
@@ -124,9 +175,13 @@ export async function extractTransactions(file: File, year: number): Promise<Txn
 export async function extractMany(files: File[], year: number): Promise<TxnRow[]> {
   const rows: TxnRow[] = [];
   let declined = 0;
-  for (const file of files) {
-    rows.push(...(await extractTransactions(file, year)));
-    declined += lastDeclinedCount;
+  try {
+    for (const file of files) {
+      rows.push(...(await extractTransactions(file, year)));
+      declined += lastDeclinedCount;
+    }
+  } finally {
+    await releaseOcrWorker();
   }
   lastDeclinedCount = declined;
   const unique = dedupeByDatetimeAmount(rows);

@@ -173,9 +173,17 @@ export function extractFromBlob(blob: string, year: number): TxnRow[] {
   return rows;
 }
 
+const TOKEN_KEEP = /\d{1,2}[:.]\d{2}|\d+[.,]\d{2}/;
+
+function usableItem(item: OcrItem): boolean {
+  if (!item.text.trim()) return false;
+  if (item.confidence == null || item.confidence >= 40) return true;
+  return TOKEN_KEEP.test(item.text);
+}
+
 export function groupLines(items: OcrItem[], yTol = 16): Array<{ y: number; line: string }> {
   const prepared = items
-    .filter((item) => item.text.trim())
+    .filter(usableItem)
     .map((item) => ({ y: item.y, x: item.x, text: item.text.trim() }))
     .sort((a, b) => a.y - b.y || a.x - b.x);
   const rows: Array<{ y: number; parts: Array<{ x: number; text: string }> }> = [];
@@ -196,8 +204,9 @@ export function groupLines(items: OcrItem[], yTol = 16): Array<{ y: number; line
 export function collectAmountPoints(items: OcrItem[]): Array<{ y: number; amount: number }> {
   const values: Array<{ y: number; amount: number }> = [];
   for (const item of items) {
+    if (!usableItem(item)) continue;
     const text = item.text.trim();
-    if (!text || new RegExp(DATE_RE.source, "i").test(text)) continue;
+    if (new RegExp(DATE_RE.source, "i").test(text)) continue;
     const amount = parseAmount(text);
     if (amount == null || amount <= 0) continue;
     values.push({ y: item.y, amount });
@@ -219,11 +228,6 @@ function secondsApart(left: string, right: string): number {
   return Math.abs(Date.parse(left.replace(" ", "T")) - Date.parse(right.replace(" ", "T"))) / 1000;
 }
 
-function sameExtract(left: TxnRow, right: TxnRow): boolean {
-  if (left.txnId.length >= 12 && left.txnId === right.txnId) return true;
-  return secondsApart(left.datetime, right.datetime) <= 2;
-}
-
 export function rowsFromItems(items: OcrItem[], year: number): TxnRow[] {
   const rows: TxnRow[] = [];
   const lines = groupLines(items);
@@ -236,9 +240,15 @@ export function rowsFromItems(items: OcrItem[], year: number): TxnRow[] {
       rows.push(row);
     }
   }
-  for (const row of extractFromBlob(items.map((item) => item.text).join(" "), year)) {
-    if (!rows.some((prev) => sameExtract(prev, row))) rows.push(row);
+  if (!rows.length) {
+    rows.push(...extractFromBlob(items.map((item) => item.text).join(" "), year));
   }
+  return rows;
+}
+
+export function rowsFromLineText(text: string, year: number, ocrY: number): TxnRow[] {
+  const rows = extractFromBlob(text, year);
+  for (const row of rows) row.ocrY = ocrY;
   return rows;
 }
 
@@ -256,7 +266,7 @@ export function assignAmounts(rows: TxnRow[], amounts: number[] | Array<{ y: num
   if (canPair) {
     for (const row of [...live].sort((left, right) => (left.ocrY ?? 0) - (right.ocrY ?? 0))) {
       let best = -1;
-      let bestDist = 20;
+      let bestDist = 48;
       points.forEach((point, index) => {
         if (used[index] || !Number.isFinite(point.y)) return;
         const dist = Math.abs((row.ocrY ?? 0) - point.y);

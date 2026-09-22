@@ -53,6 +53,7 @@ export interface OcrItem {
   x: number;
   y: number;
   text: string;
+  confidence?: number;
 }
 
 export interface BatchRecord {

@@ -5,6 +5,7 @@ import { createExtraCashSales, extractDatetimes, matchRows } from "../lib/matche
 import { extractMany, getLastDeclinedCount, getLastOcrText } from "../lib/ocr";
 import { allowedProducts } from "../lib/product-flags";
 import { activeBranch, loadSettings } from "../lib/settings";
+import { formatReportAmount, formatReportDate, grandTotal, salesByDate } from "../lib/report";
 import { displayStatus, isValidRow, type PaymentMethod, type Product, type TxnRow } from "../types";
 import { escapeHtml, statusClass } from "./dashboard";
 
@@ -88,6 +89,11 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
           <tbody id="rows"></tbody>
         </table>
       </div>
+      <div class="card date-report" id="date-report">
+        <strong>Date-wise sales</strong>
+        <p class="muted">Extracted sales by calendar date. Skipped and extra rows are not included.</p>
+        <div class="table-wrap" id="date-report-table"></div>
+      </div>
     </div>
   `;
 
@@ -146,6 +152,24 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
       summary = `Inserted ${inserted} · Skipped ${skipped} · Failed ${failed} · Amount ${total.toFixed(2)}`;
     }
     root.querySelector("#summary")!.textContent = summary;
+    const groups = salesByDate(state.rows);
+    const report = root.querySelector("#date-report-table")!;
+    if (!groups.length) {
+      report.innerHTML = `<div class="empty"><p>No extracted sales to total.</p></div>`;
+    } else {
+      const total = grandTotal(groups);
+      const salesCount = groups.reduce((sum, group) => sum + group.count, 0);
+      report.innerHTML = `<table>
+        <thead><tr><th>Date</th><th>Sales</th><th>Total</th></tr></thead>
+        <tbody>${groups
+          .map(
+            (group) =>
+              `<tr><td>${escapeHtml(formatReportDate(group.date))}</td><td>${group.count}</td><td>${escapeHtml(formatReportAmount(group.total))}</td></tr>`,
+          )
+          .join("")}</tbody>
+        <tfoot><tr><td>Grand total</td><td>${salesCount}</td><td>${escapeHtml(formatReportAmount(total))}</td></tr></tfoot>
+      </table>`;
+    }
     body.querySelectorAll("tr").forEach((tr) => {
       tr.addEventListener("click", () => {
         state.selected = tr.getAttribute("data-id");
@@ -235,6 +259,9 @@ export function renderBatch(root: HTMLElement, onFinished: () => void): void {
         formatDateTime(datetime) === formatDateTime(row.originalDatetime)
           ? addSeconds(row.originalDatetime, randomSaleOffsetSeconds())
           : datetime;
+      if (datetime.slice(0, 10) !== (row.originalDatetime || row.datetime).slice(0, 10)) {
+        row.originalDatetime = datetime;
+      }
       row.amount = Math.round(amount * 100) / 100;
       row.paymentMethod = payment === "cash" ? "cash" : "debit";
       row.status = "ok";
